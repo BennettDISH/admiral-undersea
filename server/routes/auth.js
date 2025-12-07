@@ -48,16 +48,16 @@ router.post('/register', async (req, res) => {
 
 // Login
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { username, password } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
   }
 
   try {
     const result = await db.query(
-      'SELECT id, email, username, password_hash, role, created_at FROM users WHERE LOWER(email) = LOWER($1) AND is_active = true',
-      [email]
+      'SELECT id, email, username, password_hash, role, created_at FROM users WHERE LOWER(username) = LOWER($1) AND is_active = true',
+      [username]
     );
 
     if (result.rows.length === 0) {

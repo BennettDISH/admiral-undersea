@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { auth } from '../services/api'
 
 function Login({ onLogin }) {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -14,7 +14,7 @@ function Login({ onLogin }) {
     setLoading(true)
 
     try {
-      const response = await auth.login(email, password)
+      const response = await auth.login(username, password)
       onLogin(response.data.user)
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed')
@@ -33,12 +33,12 @@ function Login({ onLogin }) {
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="username">Username</label>
             <input
-              type="email"
-              id="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               required
             />
           </div>
