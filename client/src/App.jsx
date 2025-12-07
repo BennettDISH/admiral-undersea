@@ -3,6 +3,10 @@ import { useState, useEffect } from 'react'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Home from './pages/Home'
+import CreateGame from './pages/CreateGame'
+import JoinGame from './pages/JoinGame'
+import Lobby from './pages/Lobby'
+import Game from './pages/Game'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -44,6 +48,22 @@ function App() {
         <Route
           path="/"
           element={user ? <Home user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/create"
+          element={user ? <CreateGame user={user} /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/join"
+          element={user ? <JoinGame user={user} /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/lobby/:code"
+          element={user ? <Lobby user={user} /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/game/:code"
+          element={user ? <Game user={user} /> : <Navigate to="/login" />}
         />
       </Routes>
     </div>

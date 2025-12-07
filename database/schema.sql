@@ -16,7 +16,9 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS games (
     id SERIAL PRIMARY KEY,
     code VARCHAR(10) UNIQUE NOT NULL,
-    status VARCHAR(50) DEFAULT 'waiting',
+    status VARCHAR(50) DEFAULT 'lobby',
+    same_room BOOLEAN DEFAULT false,
+    game_mode VARCHAR(50) DEFAULT 'turn-based',
     map_id INTEGER,
     team_alpha_name VARCHAR(100) DEFAULT 'Alpha',
     team_bravo_name VARCHAR(100) DEFAULT 'Bravo',
