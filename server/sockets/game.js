@@ -41,9 +41,9 @@ function setupGameSockets(io) {
       // Notify others in the room
       socket.to(roomName).emit('player-joined', { userId, username });
 
-      // Send current game state if exists
-      if (gameStates.has(gameCode)) {
-        socket.emit('game-state', gameStates.get(gameCode));
+      // Send current game state if exists (filtered for this team)
+      if (gameStates.has(gameCode) && socket.team) {
+        socket.emit('game-state', getTeamVisibleState(gameStates.get(gameCode), socket.team));
       }
     });
 
@@ -134,7 +134,10 @@ function setupGameSockets(io) {
       sub.awaitingConfirmation = true;
       sub.confirmedRoles = [];
 
-      // Broadcast move to own team (they see everything)
+      // Send updated game state to the team that moved (filtered)
+      io.to(`${roomName}:${team}`).emit('game-state', getTeamVisibleState(state, team));
+
+      // Broadcast move announcement to everyone
       io.to(roomName).emit('move-announced', {
         team,
         direction,
@@ -191,7 +194,9 @@ function setupGameSockets(io) {
         sub.systems[system] = Math.min(sub.systems[system] + 1, getSystemMax(system));
       }
 
-      io.to(roomName).emit('system-charged', { team, system, value: sub.systems[system] });
+      // Only notify own team about system charging
+      io.to(`${roomName}:${team}`).emit('system-charged', { team, system, value: sub.systems[system] });
+      io.to(`${roomName}:${team}`).emit('game-state', getTeamVisibleState(state, team));
     });
 
     // Fire torpedo
@@ -243,7 +248,9 @@ function setupGameSockets(io) {
         const state = initGameState();
         gameStates.set(gameCode, state);
 
-        io.to(roomName).emit('game-started', state);
+        // Send filtered state to each team
+        io.to(`${roomName}:alpha`).emit('game-started', getTeamVisibleState(state, 'alpha'));
+        io.to(`${roomName}:bravo`).emit('game-started', getTeamVisibleState(state, 'bravo'));
       } catch (error) {
         console.error('Start game error:', error);
       }
@@ -310,6 +317,27 @@ function getSystemMax(system) {
     silence: 6
   };
   return maxValues[system] || 3;
+}
+
+// Filter game state to only show what a team should see
+function getTeamVisibleState(state, team) {
+  const enemyTeam = team === 'alpha' ? 'bravo' : 'alpha';
+
+  return {
+    submarines: {
+      [team]: state.submarines[team], // Full info for own sub
+      [enemyTeam]: {
+        // Only show enemy health (they announce damage)
+        health: state.submarines[enemyTeam].health,
+        // Hide position, path, and systems
+        position: null,
+        path: [],
+        systems: {}
+      }
+    },
+    currentTurn: state.currentTurn,
+    winner: state.winner
+  };
 }
 
 module.exports = setupGameSockets;
