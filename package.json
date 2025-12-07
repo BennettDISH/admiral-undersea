@@ -1,0 +1,21 @@
+{
+  "name": "admiral-undersea",
+  "version": "1.0.0",
+  "description": "Digital version of Captain Sonar board game",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "build": "cd client && npm run build",
+    "install-all": "cd server && npm install && cd ../client && npm install",
+    "postinstall": "npm run install-all && npm run build"
+  },
+  "keywords": [
+    "captain-sonar",
+    "board-game",
+    "multiplayer"
+  ],
+  "author": "Bennett",
+  "license": "ISC"
+}
