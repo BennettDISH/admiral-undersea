@@ -56,8 +56,8 @@ function Game({ user }) {
     })
 
     socket.on('play-move-sound', ({ team, direction }) => {
-      // Play sound for radio operator
-      if (team !== myTeam && myRole === 'radio-operator') {
+      // Server only sends this to enemy team, so just check if we're radio operator
+      if (myRole === 'radio-operator') {
         playMoveSound(direction)
       }
     })
@@ -157,7 +157,7 @@ function Game({ user }) {
   const handleMove = (direction) => {
     if (myRole !== 'captain' || awaitingConfirmation) return
     socket.emit('captain-move', { gameCode: code, direction })
-    playMoveSound(direction)
+    // Sound is played via socket event for the OTHER team's radio operator only
   }
 
   const handleAyeCaptain = () => {

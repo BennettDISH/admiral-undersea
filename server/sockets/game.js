@@ -17,6 +17,27 @@ function setupGameSockets(io) {
 
       console.log(`${username} joined game ${gameCode}`);
 
+      // Look up existing team/role from database
+      try {
+        const gameResult = await db.query('SELECT id FROM games WHERE code = $1', [gameCode]);
+        if (gameResult.rows.length > 0) {
+          const playerResult = await db.query(
+            'SELECT team, role FROM game_players WHERE game_id = $1 AND user_id = $2',
+            [gameResult.rows[0].id, userId]
+          );
+          if (playerResult.rows.length > 0) {
+            socket.team = playerResult.rows[0].team;
+            socket.role = playerResult.rows[0].role;
+            // Join team-specific room for targeted messages
+            if (socket.team) {
+              socket.join(`${roomName}:${socket.team}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading player data:', error);
+      }
+
       // Notify others in the room
       socket.to(roomName).emit('player-joined', { userId, username });
 
@@ -46,6 +67,13 @@ function setupGameSockets(io) {
           [gameId, userId, team]
         );
 
+        // Leave old team room, join new team room
+        if (socket.team) {
+          socket.leave(`${roomName}:${socket.team}`);
+        }
+        socket.team = team;
+        socket.join(`${roomName}:${team}`);
+
         // Broadcast team update
         io.to(roomName).emit('team-updated', { userId, username: socket.username, team });
       } catch (error) {
@@ -67,6 +95,8 @@ function setupGameSockets(io) {
           `UPDATE game_players SET role = $1 WHERE game_id = $2 AND user_id = $3`,
           [role, gameId, userId]
         );
+
+        socket.role = role;
 
         io.to(roomName).emit('role-updated', { userId, username: socket.username, role });
       } catch (error) {
@@ -111,8 +141,9 @@ function setupGameSockets(io) {
         awaitingConfirmation: true
       });
 
-      // Play sound for radio operator
-      io.to(roomName).emit('play-move-sound', { team, direction });
+      // Play sound for enemy team's radio operator only
+      const enemyTeam = team === 'alpha' ? 'bravo' : 'alpha';
+      io.to(`${roomName}:${enemyTeam}`).emit('play-move-sound', { team, direction });
     });
 
     // Role confirms (Aye Captain)
