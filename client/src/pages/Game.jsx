@@ -382,70 +382,74 @@ function Game({ user }) {
         {(myRoles.length === 1 ? myRoles.includes('captain') : activeRole === 'captain') && (
           <div className="captain-panel">
             <h2>Captain's Controls</h2>
-            <div className="map-container">
-              <div className="game-map">
-                {SIMPLE_MAP.map((row, y) => (
-                  <div key={y} className="map-row">
-                    {row.map((cell, x) => {
-                      const isMyPos = mySub?.position?.x === x && mySub?.position?.y === y
-                      const isPath = mySub?.path?.some(p => p.x === x && p.y === y)
-                      return (
-                        <div
-                          key={x}
-                          className={`map-cell ${cell ? 'island' : 'water'} ${isMyPos ? 'submarine' : ''} ${isPath ? 'path' : ''}`}
-                          onClick={() => mySub?.systems?.torpedo >= 3 && handleFireTorpedo(x, y)}
-                        >
-                          {isMyPos && '🔴'}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="movement-controls">
-              <button onClick={() => handleMove('N')} disabled={awaitingConfirmation}>
-                ⬆️ North
-              </button>
-              <div className="horizontal-controls">
-                <button onClick={() => handleMove('W')} disabled={awaitingConfirmation}>
-                  ⬅️ West
-                </button>
-                <button onClick={() => handleMove('E')} disabled={awaitingConfirmation}>
-                  East ➡️
-                </button>
-              </div>
-              <button onClick={() => handleMove('S')} disabled={awaitingConfirmation}>
-                ⬇️ South
-              </button>
-            </div>
-
-            {awaitingConfirmation && (
-              <div className="waiting-confirmation">
-                <p>Waiting for crew confirmation...</p>
-                <div className="confirmed-roles">
-                  {confirmedRoles.map(r => <span key={r} className="confirmed">✓ {r}</span>)}
-                </div>
-              </div>
-            )}
-
-            <div className="systems-display">
-              <h3>Systems</h3>
-              {SYSTEMS.map(sys => (
-                <div key={sys.id} className="system-row">
-                  <span>{sys.icon} {sys.name}</span>
-                  <div className="charge-bar">
-                    {Array(sys.max).fill(0).map((_, i) => (
-                      <span key={i} className={`charge-pip ${i < (mySub?.systems?.[sys.id] || 0) ? 'filled' : ''}`} />
+            <div className="captain-layout">
+              <div className="captain-left">
+                <div className="map-container">
+                  <div className="game-map">
+                    {SIMPLE_MAP.map((row, y) => (
+                      <div key={y} className="map-row">
+                        {row.map((cell, x) => {
+                          const isMyPos = mySub?.position?.x === x && mySub?.position?.y === y
+                          const isPath = mySub?.path?.some(p => p.x === x && p.y === y)
+                          return (
+                            <div
+                              key={x}
+                              className={`map-cell ${cell ? 'island' : 'water'} ${isMyPos ? 'submarine' : ''} ${isPath ? 'path' : ''}`}
+                              onClick={() => mySub?.systems?.torpedo >= 3 && handleFireTorpedo(x, y)}
+                            >
+                              {isMyPos && '🔴'}
+                            </div>
+                          )
+                        })}
+                      </div>
                     ))}
                   </div>
-                  {sys.id === 'torpedo' && mySub?.systems?.torpedo >= 3 && (
-                    <button className="fire-btn">FIRE!</button>
-                  )}
                 </div>
-              ))}
-            </div>
+
+                <div className="movement-controls">
+                  <button onClick={() => handleMove('N')} disabled={awaitingConfirmation}>
+                    ⬆️ N
+                  </button>
+                  <div className="horizontal-controls">
+                    <button onClick={() => handleMove('W')} disabled={awaitingConfirmation}>
+                      ⬅️ W
+                    </button>
+                    <button onClick={() => handleMove('E')} disabled={awaitingConfirmation}>
+                      E ➡️
+                    </button>
+                  </div>
+                  <button onClick={() => handleMove('S')} disabled={awaitingConfirmation}>
+                    ⬇️ S
+                  </button>
+                </div>
+              </div>
+
+              <div className="captain-right">
+                {awaitingConfirmation && (
+                  <div className="waiting-confirmation">
+                    <p>Waiting for crew...</p>
+                    <div className="confirmed-roles">
+                      {confirmedRoles.map(r => <span key={r} className="confirmed">✓ {r}</span>)}
+                    </div>
+                  </div>
+                )}
+
+                <div className="systems-display">
+                  <h3>Systems</h3>
+                  {SYSTEMS.map(sys => (
+                    <div key={sys.id} className="system-row">
+                      <span>{sys.icon} {sys.name}</span>
+                      <div className="charge-bar">
+                        {Array(sys.max).fill(0).map((_, i) => (
+                          <span key={i} className={`charge-pip ${i < (mySub?.systems?.[sys.id] || 0) ? 'filled' : ''}`} />
+                        ))}
+                      </div>
+                      {sys.id === 'torpedo' && mySub?.systems?.torpedo >= 3 && (
+                        <button className="fire-btn">FIRE!</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
 
             {/* Automation Control Panel - only show if there are automated roles */}
             {automatedRoles.length > 0 && (
@@ -522,6 +526,8 @@ function Game({ user }) {
                 )}
               </div>
             )}
+              </div>
+            </div>
           </div>
         )}
 
