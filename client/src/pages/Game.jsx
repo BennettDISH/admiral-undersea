@@ -25,29 +25,42 @@ const SYSTEMS = [
   { id: 'silence', name: 'Silence', max: 6, icon: '🤫' },
 ]
 
-// Engineer circuit board - each direction has damage slots
-const CIRCUIT_BOARD = {
-  N: [
-    { id: 'n1', system: 'torpedo' },
-    { id: 'n2', system: 'mine' },
-    { id: 'n3', system: 'sonar' },
-  ],
-  S: [
-    { id: 's1', system: 'drone' },
-    { id: 's2', system: 'silence' },
-    { id: 's3', system: 'torpedo' },
-  ],
-  E: [
-    { id: 'e1', system: 'mine' },
-    { id: 'e2', system: 'drone' },
-    { id: 'e3', system: 'silence' },
-  ],
-  W: [
-    { id: 'w1', system: 'sonar' },
-    { id: 'w2', system: 'torpedo' },
-    { id: 'w3', system: 'mine' },
-  ],
+// Engineer circuit board - based on Captain Sonar rules
+// Each slot belongs to a direction, system, and circuit (group)
+// When all slots in a circuit are marked, they auto-clear
+const ENGINEER_SLOTS = [
+  // North section (4 slots)
+  { id: 'n1', dir: 'N', system: 'torpedo', circuit: 'A' },
+  { id: 'n2', dir: 'N', system: 'mine', circuit: 'B' },
+  { id: 'n3', dir: 'N', system: 'drone', circuit: 'C' },
+  { id: 'n4', dir: 'N', system: 'sonar', circuit: 'D' },
+  // South section (4 slots)
+  { id: 's1', dir: 'S', system: 'silence', circuit: 'A' },
+  { id: 's2', dir: 'S', system: 'torpedo', circuit: 'B' },
+  { id: 's3', dir: 'S', system: 'mine', circuit: 'C' },
+  { id: 's4', dir: 'S', system: 'drone', circuit: 'D' },
+  // East section (4 slots)
+  { id: 'e1', dir: 'E', system: 'sonar', circuit: 'A' },
+  { id: 'e2', dir: 'E', system: 'silence', circuit: 'B' },
+  { id: 'e3', dir: 'E', system: 'torpedo', circuit: 'C' },
+  { id: 'e4', dir: 'E', system: 'mine', circuit: 'D' },
+  // West section (4 slots)
+  { id: 'w1', dir: 'W', system: 'drone', circuit: 'A' },
+  { id: 'w2', dir: 'W', system: 'sonar', circuit: 'B' },
+  { id: 'w3', dir: 'W', system: 'silence', circuit: 'C' },
+  { id: 'w4', dir: 'W', system: 'mine', circuit: 'D' },
+]
+
+// Circuits - when all 4 slots in a circuit are marked, they auto-clear
+const CIRCUITS = {
+  A: ['n1', 's1', 'e1', 'w1'],
+  B: ['n2', 's2', 'e2', 'w2'],
+  C: ['n3', 's3', 'e3', 'w3'],
+  D: ['n4', 's4', 'e4', 'w4'],
 }
+
+// Helper to get slots for a direction
+const getSlotsForDirection = (dir) => ENGINEER_SLOTS.filter(s => s.dir === dir)
 
 function Game({ user }) {
   const { code } = useParams()
@@ -153,9 +166,19 @@ function Game({ user }) {
       })
     })
 
-    socket.on('damage-marked', ({ team }) => {
+    socket.on('damage-marked', ({ team, slotId, completedCircuits, finalDamagedSlots }) => {
       if (team === myTeam) {
         setHasMarkedDamage(true)
+        // Sync damage slots from server (handles circuit clearing)
+        if (finalDamagedSlots) {
+          setDamagedSlots(finalDamagedSlots)
+        } else if (slotId && !damagedSlots.includes(slotId)) {
+          setDamagedSlots(prev => [...prev, slotId])
+        }
+        // Notify if circuits were completed
+        if (completedCircuits && completedCircuits.length > 0) {
+          console.log(`Circuits completed and cleared: ${completedCircuits.join(', ')}`)
+        }
       }
     })
 
@@ -260,12 +283,48 @@ function Game({ user }) {
     if (!myRoles.includes('engineer') || hasMarkedDamage || !lastMove) return
 
     const direction = lastMove.direction
-    const validSlots = CIRCUIT_BOARD[direction].map(s => s.id)
-    if (!validSlots.includes(slotId)) return
+    const slot = ENGINEER_SLOTS.find(s => s.id === slotId)
+    if (!slot || slot.dir !== direction) return
     if (damagedSlots.includes(slotId)) return
 
-    setDamagedSlots(prev => [...prev, slotId])
-    socket.emit('mark-damage', { gameCode: code, slotId, direction })
+    const newDamagedSlots = [...damagedSlots, slotId]
+
+    // Check if any circuit is now complete
+    const completedCircuits = []
+    Object.entries(CIRCUITS).forEach(([circuitId, slotIds]) => {
+      if (slotIds.every(id => newDamagedSlots.includes(id))) {
+        completedCircuits.push(circuitId)
+      }
+    })
+
+    // If circuits completed, clear those slots
+    let finalDamagedSlots = newDamagedSlots
+    if (completedCircuits.length > 0) {
+      const slotsToRemove = completedCircuits.flatMap(c => CIRCUITS[c])
+      finalDamagedSlots = newDamagedSlots.filter(id => !slotsToRemove.includes(id))
+    }
+
+    setDamagedSlots(finalDamagedSlots)
+    socket.emit('mark-damage', {
+      gameCode: code,
+      slotId,
+      direction,
+      completedCircuits,
+      finalDamagedSlots
+    })
+  }
+
+  // Check if a system is blocked (has any damaged slot)
+  const isSystemBlocked = (systemId) => {
+    return ENGINEER_SLOTS.some(slot =>
+      slot.system === systemId && damagedSlots.includes(slot.id)
+    )
+  }
+
+  // Check if a direction is full (all slots damaged) - causes hull damage
+  const isDirectionFull = (dir) => {
+    const dirSlots = getSlotsForDirection(dir)
+    return dirSlots.every(slot => damagedSlots.includes(slot.id))
   }
 
   const handleMarkEnemyMove = (direction) => {
@@ -603,49 +662,74 @@ function Game({ user }) {
                     <p className="action-done">✓ Damage marked</p>
                   )}
                 </div>
+              </>
+            )}
 
-                <div className="circuit-board">
-                  {Object.entries(CIRCUIT_BOARD).map(([direction, slots]) => (
-                    <div
-                      key={direction}
-                      className={`circuit-section ${direction.toLowerCase()} ${lastMove?.direction === direction ? 'active' : ''}`}
-                    >
-                      <h4>{direction}</h4>
-                      <div className="damage-slots">
-                        {slots.map(slot => (
+            <div className="circuit-board">
+              {['N', 'S', 'E', 'W'].map(dir => {
+                const dirSlots = getSlotsForDirection(dir)
+                const isActive = lastMove?.direction === dir && awaitingConfirmation
+                return (
+                  <div
+                    key={dir}
+                    className={`circuit-section ${dir.toLowerCase()} ${isActive ? 'active' : ''}`}
+                  >
+                    <h4>{dir}</h4>
+                    <div className="damage-slots">
+                      {dirSlots.map(slot => {
+                        const isDamaged = damagedSlots.includes(slot.id)
+                        // Find which circuit this slot belongs to and show indicator
+                        const circuitColor = slot.circuit
+                        return (
                           <button
                             key={slot.id}
-                            className={`damage-slot ${damagedSlots.includes(slot.id) ? 'damaged' : ''} ${slot.system}`}
+                            className={`damage-slot ${isDamaged ? 'damaged' : ''} ${slot.system} circuit-${circuitColor}`}
                             onClick={() => handleMarkDamage(slot.id)}
                             disabled={
                               hasMarkedDamage ||
-                              damagedSlots.includes(slot.id) ||
-                              lastMove?.direction !== direction
+                              isDamaged ||
+                              !isActive
                             }
-                            title={slot.system}
+                            title={`${slot.system} (Circuit ${circuitColor})`}
                           >
-                            {damagedSlots.includes(slot.id) ? '✗' : '○'}
+                            <span className="slot-circuit">{circuitColor}</span>
+                            {isDamaged ? '✗' : '○'}
                           </button>
-                        ))}
-                      </div>
+                        )
+                      })}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                )
+              })}
+            </div>
 
-                <div className="circuit-legend">
-                  <span className="legend-item torpedo">Torpedo</span>
-                  <span className="legend-item mine">Mine</span>
-                  <span className="legend-item drone">Drone</span>
-                  <span className="legend-item sonar">Sonar</span>
-                  <span className="legend-item silence">Silence</span>
-                </div>
+            <div className="circuit-legend">
+              <div className="legend-row">
+                <span className="legend-item torpedo">Torpedo</span>
+                <span className="legend-item mine">Mine</span>
+                <span className="legend-item drone">Drone</span>
+                <span className="legend-item sonar">Sonar</span>
+                <span className="legend-item silence">Silence</span>
+              </div>
+              <p className="circuit-hint">Circuits A-D: Complete all 4 slots in a circuit to auto-repair!</p>
+            </div>
 
-                {roleCanConfirm('engineer') && (
-                  <button className="aye-btn" onClick={() => handleAyeCaptain('engineer')}>
-                    ⚓ Aye Captain!
-                  </button>
-                )}
-              </>
+            {/* Show blocked systems */}
+            <div className="blocked-systems">
+              <h4>System Status</h4>
+              <div className="system-status-grid">
+                {SYSTEMS.map(sys => (
+                  <span key={sys.id} className={`system-status ${isSystemBlocked(sys.id) ? 'blocked' : 'ok'}`}>
+                    {sys.icon} {isSystemBlocked(sys.id) ? '✗' : '✓'}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {awaitingConfirmation && roleCanConfirm('engineer') && (
+              <button className="aye-btn" onClick={() => handleAyeCaptain('engineer')}>
+                ⚓ Aye Captain!
+              </button>
             )}
           </div>
         )}

@@ -440,13 +440,39 @@ function getTeamVisibleState(state, team) {
   };
 }
 
-// Circuit board slots for engineer automation
-const CIRCUIT_BOARD = {
-  N: [{ id: 'n1', system: 'torpedo' }, { id: 'n2', system: 'mine' }, { id: 'n3', system: 'sonar' }],
-  S: [{ id: 's1', system: 'drone' }, { id: 's2', system: 'silence' }, { id: 's3', system: 'torpedo' }],
-  E: [{ id: 'e1', system: 'mine' }, { id: 'e2', system: 'drone' }, { id: 'e3', system: 'silence' }],
-  W: [{ id: 'w1', system: 'sonar' }, { id: 'w2', system: 'torpedo' }, { id: 'w3', system: 'mine' }],
+// Engineer circuit board - based on Captain Sonar rules
+const ENGINEER_SLOTS = [
+  // North section (4 slots)
+  { id: 'n1', dir: 'N', system: 'torpedo', circuit: 'A' },
+  { id: 'n2', dir: 'N', system: 'mine', circuit: 'B' },
+  { id: 'n3', dir: 'N', system: 'drone', circuit: 'C' },
+  { id: 'n4', dir: 'N', system: 'sonar', circuit: 'D' },
+  // South section (4 slots)
+  { id: 's1', dir: 'S', system: 'silence', circuit: 'A' },
+  { id: 's2', dir: 'S', system: 'torpedo', circuit: 'B' },
+  { id: 's3', dir: 'S', system: 'mine', circuit: 'C' },
+  { id: 's4', dir: 'S', system: 'drone', circuit: 'D' },
+  // East section (4 slots)
+  { id: 'e1', dir: 'E', system: 'sonar', circuit: 'A' },
+  { id: 'e2', dir: 'E', system: 'silence', circuit: 'B' },
+  { id: 'e3', dir: 'E', system: 'torpedo', circuit: 'C' },
+  { id: 'e4', dir: 'E', system: 'mine', circuit: 'D' },
+  // West section (4 slots)
+  { id: 'w1', dir: 'W', system: 'drone', circuit: 'A' },
+  { id: 'w2', dir: 'W', system: 'sonar', circuit: 'B' },
+  { id: 'w3', dir: 'W', system: 'silence', circuit: 'C' },
+  { id: 'w4', dir: 'W', system: 'mine', circuit: 'D' },
+];
+
+// Circuits - when all 4 slots in a circuit are marked, they auto-clear
+const CIRCUITS = {
+  A: ['n1', 's1', 'e1', 'w1'],
+  B: ['n2', 's2', 'e2', 'w2'],
+  C: ['n3', 's3', 'e3', 'w3'],
+  D: ['n4', 's4', 'e4', 'w4'],
 };
+
+const getSlotsForDirection = (dir) => ENGINEER_SLOTS.filter(s => s.dir === dir);
 
 // Perform automated actions after captain moves
 function performAutomation(io, gameCode, team, direction, state, automatedRoles) {
@@ -479,26 +505,43 @@ function performAutomation(io, gameCode, team, direction, state, automatedRoles)
     }
   }
 
-  // Engineer automation - mark damage in least impactful slot
+  // Engineer automation - mark damage and check circuit completion
   if (automatedRoles.includes('engineer')) {
-    const slots = CIRCUIT_BOARD[direction];
-    const damage = sub.damage || [];
-    const damagedSlotIds = damage.map(d => d.slotId);
+    const dirSlots = getSlotsForDirection(direction);
+    if (!sub.damage) sub.damage = [];
+    const damagedSlotIds = sub.damage.map(d => d.slotId);
 
-    // Find first available slot
-    const availableSlot = slots.find(s => !damagedSlotIds.includes(s.id));
+    // Find first available slot in this direction
+    const availableSlot = dirSlots.find(s => !damagedSlotIds.includes(s.id));
     if (availableSlot) {
-      if (!sub.damage) sub.damage = [];
       sub.damage.push({ slotId: availableSlot.id, direction });
+      const newDamagedIds = sub.damage.map(d => d.slotId);
+
+      // Check for completed circuits
+      const completedCircuits = [];
+      Object.entries(CIRCUITS).forEach(([circuitId, slotIds]) => {
+        if (slotIds.every(id => newDamagedIds.includes(id))) {
+          completedCircuits.push(circuitId);
+        }
+      });
+
+      // Clear completed circuits
+      if (completedCircuits.length > 0) {
+        const slotsToRemove = completedCircuits.flatMap(c => CIRCUITS[c]);
+        sub.damage = sub.damage.filter(d => !slotsToRemove.includes(d.slotId));
+      }
+
       io.to(`${roomName}:${team}`).emit('damage-marked', {
         team,
         slotId: availableSlot.id,
-        direction
+        direction,
+        completedCircuits,
+        finalDamagedSlots: sub.damage.map(d => d.slotId)
       });
       io.to(`${roomName}:${team}`).emit('automation-action', {
         role: 'engineer',
         action: 'marked-damage',
-        details: { slotId: availableSlot.id, direction }
+        details: { slotId: availableSlot.id, direction, completedCircuits }
       });
     }
 
