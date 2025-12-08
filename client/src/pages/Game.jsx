@@ -354,7 +354,8 @@ function Game({ user }) {
   // Calculate engineer board status per direction
   const getEngineerBoardStatus = () => {
     const status = {}
-    Object.entries(CIRCUIT_BOARD).forEach(([direction, slots]) => {
+    ;['N', 'S', 'E', 'W'].forEach(direction => {
+      const slots = getSlotsForDirection(direction)
       const availableSlots = slots.filter(s => !damagedSlots.includes(s.id)).length
       const totalSlots = slots.length
       status[direction] = {
