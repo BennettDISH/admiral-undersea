@@ -16,8 +16,8 @@ function Lobby({ user }) {
   const [game, setGame] = useState(null)
   const [players, setPlayers] = useState([])
   const [selectedTeam, setSelectedTeam] = useState(null)
-  const [selectedRole, setSelectedRole] = useState(null)
-  const [automatedRoles, setAutomatedRoles] = useState(['first-mate', 'engineer', 'radio-operator'])
+  const [selectedRoles, setSelectedRoles] = useState([])
+  const [automatedRoles, setAutomatedRoles] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -38,7 +38,7 @@ function Lobby({ user }) {
     })
 
     socket.on('team-updated', () => loadGame())
-    socket.on('role-updated', () => loadGame())
+    socket.on('roles-updated', () => loadGame())
     socket.on('game-started', (state) => {
       navigate(`/game/${code}`)
     })
@@ -47,7 +47,7 @@ function Lobby({ user }) {
       socket.off('player-joined')
       socket.off('player-left')
       socket.off('team-updated')
-      socket.off('role-updated')
+      socket.off('roles-updated')
       socket.off('game-started')
     }
   }, [code, user])
@@ -61,7 +61,12 @@ function Lobby({ user }) {
       const myPlayer = response.data.players.find(p => p.user_id === user.id)
       if (myPlayer) {
         setSelectedTeam(myPlayer.team)
-        setSelectedRole(myPlayer.role)
+        // Parse roles - could be comma-separated string or single role
+        if (myPlayer.roles) {
+          setSelectedRoles(myPlayer.roles.split(',').filter(r => r))
+        } else if (myPlayer.role && myPlayer.role !== 'unassigned') {
+          setSelectedRoles([myPlayer.role])
+        }
       }
     } catch (err) {
       setError('Failed to load game')
@@ -72,33 +77,83 @@ function Lobby({ user }) {
 
   const handleSelectTeam = (team) => {
     setSelectedTeam(team)
+    setSelectedRoles([])
+    setAutomatedRoles([])
     socket.emit('select-team', { gameCode: code, userId: user.id, team })
   }
 
-  const handleSelectRole = (role) => {
-    setSelectedRole(role)
-    setAutomatedRoles(prev => prev.filter(r => r !== role))
-    socket.emit('select-role', { gameCode: code, userId: user.id, role })
+  const toggleRole = (roleId) => {
+    let newRoles
+    if (selectedRoles.includes(roleId)) {
+      newRoles = selectedRoles.filter(r => r !== roleId)
+    } else {
+      newRoles = [...selectedRoles, roleId]
+      // If selecting a role, remove from automated
+      setAutomatedRoles(prev => prev.filter(r => r !== roleId))
+    }
+    setSelectedRoles(newRoles)
+    socket.emit('select-roles', { gameCode: code, userId: user.id, roles: newRoles })
   }
 
-  const toggleAutomatedRole = (role) => {
-    if (role === 'captain') return
-    setAutomatedRoles(prev =>
-      prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]
-    )
+  const toggleAutomatedRole = (roleId) => {
+    if (roleId === 'captain') return // Captain can't be automated
+
+    let newAutomated
+    if (automatedRoles.includes(roleId)) {
+      newAutomated = automatedRoles.filter(r => r !== roleId)
+    } else {
+      newAutomated = [...automatedRoles, roleId]
+      // If automating, remove from player's selected roles
+      const newRoles = selectedRoles.filter(r => r !== roleId)
+      setSelectedRoles(newRoles)
+      socket.emit('select-roles', { gameCode: code, userId: user.id, roles: newRoles })
+    }
+    setAutomatedRoles(newAutomated)
+    socket.emit('set-automated-roles', { gameCode: code, team: selectedTeam, automatedRoles: newAutomated })
   }
 
   const handleStartGame = () => {
-    socket.emit('start-game', { gameCode: code, automatedRoles })
+    socket.emit('start-game', { gameCode: code })
   }
 
   const isCreator = game?.created_by === user.id
   const teamPlayers = (team) => players.filter(p => p.team === team)
-  const canStart = players.some(p => p.team === 'alpha' && p.role === 'captain') &&
-                   players.some(p => p.team === 'bravo' && p.role === 'captain')
+
+  // Check if both teams have captains (either player or not automated means someone needs to play it)
+  const teamHasCaptain = (team) => {
+    const teamPlayersList = teamPlayers(team)
+    return teamPlayersList.some(p => {
+      const roles = p.roles ? p.roles.split(',') : (p.role ? [p.role] : [])
+      return roles.includes('captain')
+    })
+  }
+
+  const canStart = teamHasCaptain('alpha') && teamHasCaptain('bravo')
+
+  // Get roles assigned to players on a team
+  const getTeamRoleAssignments = (team) => {
+    const assignments = {}
+    ROLES.forEach(role => {
+      assignments[role.id] = []
+    })
+
+    teamPlayers(team).forEach(player => {
+      const roles = player.roles ? player.roles.split(',') : (player.role && player.role !== 'unassigned' ? [player.role] : [])
+      roles.forEach(roleId => {
+        if (assignments[roleId]) {
+          assignments[roleId].push(player.username)
+        }
+      })
+    })
+
+    return assignments
+  }
 
   if (loading) return <div className="loading">Loading...</div>
   if (error) return <div className="error-page">{error}</div>
+
+  const alphaAssignments = getTeamRoleAssignments('alpha')
+  const bravoAssignments = getTeamRoleAssignments('bravo')
 
   return (
     <div className="lobby-page">
@@ -120,6 +175,7 @@ function Lobby({ user }) {
       </div>
 
       <div className="teams-container">
+        {/* Team Alpha */}
         <div className={`team-card alpha ${selectedTeam === 'alpha' ? 'selected' : ''}`}>
           <h2>Team Alpha</h2>
           <button
@@ -134,28 +190,61 @@ function Lobby({ user }) {
             {teamPlayers('alpha').map(p => (
               <div key={p.user_id} className="player-row">
                 <span className="player-name">{p.username}</span>
-                <span className="player-role">{p.role || 'Selecting...'}</span>
+                <span className="player-role">
+                  {p.roles || p.role || 'Selecting...'}
+                </span>
               </div>
             ))}
           </div>
 
           {selectedTeam === 'alpha' && (
             <div className="role-selection">
-              <h3>Select Your Role</h3>
-              {ROLES.map(role => (
-                <button
-                  key={role.id}
-                  className={`role-btn ${selectedRole === role.id ? 'selected' : ''}`}
-                  onClick={() => handleSelectRole(role.id)}
-                >
-                  <span className="role-name">{role.name}</span>
-                  {role.required && <span className="required-badge">Required</span>}
-                </button>
-              ))}
+              <h3>Role Assignment</h3>
+              <div className="role-grid">
+                {ROLES.map(role => {
+                  const isSelected = selectedRoles.includes(role.id)
+                  const isAutomated = automatedRoles.includes(role.id)
+                  const assignedTo = alphaAssignments[role.id]
+
+                  return (
+                    <div key={role.id} className={`role-row ${isSelected ? 'selected' : ''} ${isAutomated ? 'automated' : ''}`}>
+                      <div className="role-info">
+                        <span className="role-name">{role.name}</span>
+                        {role.required && <span className="required-badge">Required</span>}
+                        {assignedTo.length > 0 && (
+                          <span className="assigned-to">({assignedTo.join(', ')})</span>
+                        )}
+                      </div>
+                      <div className="role-controls">
+                        <label className="role-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleRole(role.id)}
+                            disabled={isAutomated}
+                          />
+                          <span>I'll play</span>
+                        </label>
+                        {!role.required && (
+                          <label className="role-checkbox auto">
+                            <input
+                              type="checkbox"
+                              checked={isAutomated}
+                              onChange={() => toggleAutomatedRole(role.id)}
+                            />
+                            <span>Auto</span>
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>
 
+        {/* Team Bravo */}
         <div className={`team-card bravo ${selectedTeam === 'bravo' ? 'selected' : ''}`}>
           <h2>Team Bravo</h2>
           <button
@@ -170,48 +259,60 @@ function Lobby({ user }) {
             {teamPlayers('bravo').map(p => (
               <div key={p.user_id} className="player-row">
                 <span className="player-name">{p.username}</span>
-                <span className="player-role">{p.role || 'Selecting...'}</span>
+                <span className="player-role">
+                  {p.roles || p.role || 'Selecting...'}
+                </span>
               </div>
             ))}
           </div>
 
           {selectedTeam === 'bravo' && (
             <div className="role-selection">
-              <h3>Select Your Role</h3>
-              {ROLES.map(role => (
-                <button
-                  key={role.id}
-                  className={`role-btn ${selectedRole === role.id ? 'selected' : ''}`}
-                  onClick={() => handleSelectRole(role.id)}
-                >
-                  <span className="role-name">{role.name}</span>
-                  {role.required && <span className="required-badge">Required</span>}
-                </button>
-              ))}
+              <h3>Role Assignment</h3>
+              <div className="role-grid">
+                {ROLES.map(role => {
+                  const isSelected = selectedRoles.includes(role.id)
+                  const isAutomated = automatedRoles.includes(role.id)
+                  const assignedTo = bravoAssignments[role.id]
+
+                  return (
+                    <div key={role.id} className={`role-row ${isSelected ? 'selected' : ''} ${isAutomated ? 'automated' : ''}`}>
+                      <div className="role-info">
+                        <span className="role-name">{role.name}</span>
+                        {role.required && <span className="required-badge">Required</span>}
+                        {assignedTo.length > 0 && (
+                          <span className="assigned-to">({assignedTo.join(', ')})</span>
+                        )}
+                      </div>
+                      <div className="role-controls">
+                        <label className="role-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleRole(role.id)}
+                            disabled={isAutomated}
+                          />
+                          <span>I'll play</span>
+                        </label>
+                        {!role.required && (
+                          <label className="role-checkbox auto">
+                            <input
+                              type="checkbox"
+                              checked={isAutomated}
+                              onChange={() => toggleAutomatedRole(role.id)}
+                            />
+                            <span>Auto</span>
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>
       </div>
-
-      {selectedTeam && (
-        <div className="automation-section">
-          <h3>Automated Roles</h3>
-          <p>Roles without players will be automated:</p>
-          <div className="automation-toggles">
-            {ROLES.filter(r => !r.required).map(role => (
-              <label key={role.id} className="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={automatedRoles.includes(role.id)}
-                  onChange={() => toggleAutomatedRole(role.id)}
-                  disabled={selectedRole === role.id}
-                />
-                <span>{role.name}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
 
       {isCreator && (
         <button
@@ -219,7 +320,7 @@ function Lobby({ user }) {
           onClick={handleStartGame}
           disabled={!canStart}
         >
-          {canStart ? 'Start Game' : 'Waiting for Captains...'}
+          {canStart ? 'Start Game' : 'Each team needs a Captain...'}
         </button>
       )}
 

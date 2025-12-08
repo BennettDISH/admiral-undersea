@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import socket, { connectSocket } from '../services/socket'
@@ -25,19 +25,50 @@ const SYSTEMS = [
   { id: 'silence', name: 'Silence', max: 6, icon: '🤫' },
 ]
 
+// Engineer circuit board - each direction has damage slots
+const CIRCUIT_BOARD = {
+  N: [
+    { id: 'n1', system: 'torpedo' },
+    { id: 'n2', system: 'mine' },
+    { id: 'n3', system: 'sonar' },
+  ],
+  S: [
+    { id: 's1', system: 'drone' },
+    { id: 's2', system: 'silence' },
+    { id: 's3', system: 'torpedo' },
+  ],
+  E: [
+    { id: 'e1', system: 'mine' },
+    { id: 'e2', system: 'drone' },
+    { id: 'e3', system: 'silence' },
+  ],
+  W: [
+    { id: 'w1', system: 'sonar' },
+    { id: 'w2', system: 'torpedo' },
+    { id: 'w3', system: 'mine' },
+  ],
+}
+
 function Game({ user }) {
   const { code } = useParams()
   const navigate = useNavigate()
-  const audioRef = useRef(null)
 
   const [game, setGame] = useState(null)
   const [myTeam, setMyTeam] = useState(null)
-  const [myRole, setMyRole] = useState(null)
+  const [myRoles, setMyRoles] = useState([])
+  const [activeRole, setActiveRole] = useState(null)
   const [gameState, setGameState] = useState(null)
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false)
   const [confirmedRoles, setConfirmedRoles] = useState([])
-  const [enemyPath, setEnemyPath] = useState([]) // Radio operator tracking
+  const [enemyPath, setEnemyPath] = useState([])
   const [lastMove, setLastMove] = useState(null)
+
+  // Track if role has completed their action this turn
+  const [hasChargedSystem, setHasChargedSystem] = useState(false)
+  const [hasMarkedDamage, setHasMarkedDamage] = useState(false)
+
+  // Engineer's damage tracking
+  const [damagedSlots, setDamagedSlots] = useState([])
 
   useEffect(() => {
     loadGame()
@@ -52,12 +83,14 @@ function Game({ user }) {
       setLastMove({ team, direction })
       if (team === myTeam) {
         setAwaitingConfirmation(awaiting)
+        // Reset action flags for new turn
+        setHasChargedSystem(false)
+        setHasMarkedDamage(false)
       }
     })
 
     socket.on('play-move-sound', ({ team, direction }) => {
-      // Server only sends this to enemy team, so just check if we're radio operator
-      if (myRole === 'radio-operator') {
+      if (myRoles.includes('radio-operator')) {
         playMoveSound(direction)
       }
     })
@@ -72,23 +105,36 @@ function Game({ user }) {
       if (team === myTeam) {
         setAwaitingConfirmation(false)
         setConfirmedRoles([])
+        setLastMove(null)
       }
     })
 
     socket.on('system-charged', ({ team, system, value }) => {
-      setGameState(prev => ({
-        ...prev,
-        submarines: {
-          ...prev.submarines,
-          [team]: {
-            ...prev.submarines[team],
-            systems: {
-              ...prev.submarines[team].systems,
-              [system]: value
+      if (team === myTeam) {
+        setHasChargedSystem(true)
+      }
+      setGameState(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          submarines: {
+            ...prev.submarines,
+            [team]: {
+              ...prev.submarines[team],
+              systems: {
+                ...prev.submarines[team].systems,
+                [system]: value
+              }
             }
           }
         }
-      }))
+      })
+    })
+
+    socket.on('damage-marked', ({ team }) => {
+      if (team === myTeam) {
+        setHasMarkedDamage(true)
+      }
     })
 
     socket.on('torpedo-hit', ({ team, damage, enemyHealth }) => {
@@ -112,11 +158,12 @@ function Game({ user }) {
       socket.off('role-confirmed')
       socket.off('turn-complete')
       socket.off('system-charged')
+      socket.off('damage-marked')
       socket.off('torpedo-hit')
       socket.off('torpedo-miss')
       socket.off('game-over')
     }
-  }, [code, user, myTeam, myRole])
+  }, [code, user, myTeam, myRoles])
 
   const loadGame = async () => {
     try {
@@ -126,7 +173,14 @@ function Game({ user }) {
       const myPlayer = response.data.players.find(p => p.user_id === user.id)
       if (myPlayer) {
         setMyTeam(myPlayer.team)
-        setMyRole(myPlayer.role)
+        // Parse roles
+        const rolesStr = myPlayer.roles || myPlayer.role || ''
+        const roles = rolesStr.split(',').filter(r => r && r !== 'unassigned')
+        setMyRoles(roles)
+        // Set initial active role
+        if (roles.length > 0 && !activeRole) {
+          setActiveRole(roles[0])
+        }
         socket.team = myPlayer.team
       }
     } catch (err) {
@@ -135,7 +189,6 @@ function Game({ user }) {
   }
 
   const playMoveSound = (direction) => {
-    // Create audio context for move sound
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
     const oscillator = ctx.createOscillator()
     const gainNode = ctx.createGain()
@@ -155,18 +208,29 @@ function Game({ user }) {
   }
 
   const handleMove = (direction) => {
-    if (myRole !== 'captain' || awaitingConfirmation) return
+    if (!myRoles.includes('captain') || awaitingConfirmation) return
     socket.emit('captain-move', { gameCode: code, direction })
-    // Sound is played via socket event for the OTHER team's radio operator only
   }
 
-  const handleAyeCaptain = () => {
-    socket.emit('aye-captain', { gameCode: code, role: myRole })
+  const handleAyeCaptain = (role) => {
+    socket.emit('aye-captain', { gameCode: code, role })
   }
 
   const handleChargeSystem = (system) => {
-    if (myRole !== 'first-mate') return
+    if (!myRoles.includes('first-mate') || hasChargedSystem) return
     socket.emit('charge-system', { gameCode: code, system })
+  }
+
+  const handleMarkDamage = (slotId) => {
+    if (!myRoles.includes('engineer') || hasMarkedDamage || !lastMove) return
+
+    const direction = lastMove.direction
+    const validSlots = CIRCUIT_BOARD[direction].map(s => s.id)
+    if (!validSlots.includes(slotId)) return
+    if (damagedSlots.includes(slotId)) return
+
+    setDamagedSlots(prev => [...prev, slotId])
+    socket.emit('mark-damage', { gameCode: code, slotId, direction })
   }
 
   const handleMarkEnemyMove = (direction) => {
@@ -184,23 +248,57 @@ function Game({ user }) {
   }
 
   const mySub = gameState.submarines[myTeam]
-  const enemyTeam = myTeam === 'alpha' ? 'bravo' : 'alpha'
+
+  // Check which roles need to act
+  const roleNeedsAction = (role) => {
+    if (!awaitingConfirmation) return false
+    if (confirmedRoles.includes(role)) return false
+    if (role === 'first-mate' && !hasChargedSystem) return true
+    if (role === 'engineer' && !hasMarkedDamage) return true
+    if (role === 'radio-operator') return true
+    return false
+  }
+
+  const roleCanConfirm = (role) => {
+    if (!awaitingConfirmation) return false
+    if (confirmedRoles.includes(role)) return false
+    if (role === 'first-mate') return hasChargedSystem
+    if (role === 'engineer') return hasMarkedDamage
+    if (role === 'radio-operator') return true
+    return false
+  }
 
   return (
     <div className="game-page">
       <header className="game-header">
         <div className="team-info">
           <span className={`team-badge ${myTeam}`}>Team {myTeam?.toUpperCase()}</span>
-          <span className="role-badge">{myRole}</span>
+          <span className="roles-badge">{myRoles.join(', ')}</span>
         </div>
         <div className="health-display">
           <span>Health: {'❤️'.repeat(mySub?.health || 0)}{'🖤'.repeat(4 - (mySub?.health || 0))}</span>
         </div>
       </header>
 
+      {/* Role tabs for players with multiple roles */}
+      {myRoles.length > 1 && (
+        <div className="role-tabs">
+          {myRoles.map(role => (
+            <button
+              key={role}
+              className={`role-tab ${activeRole === role ? 'active' : ''} ${roleNeedsAction(role) ? 'needs-action' : ''}`}
+              onClick={() => setActiveRole(role)}
+            >
+              {role}
+              {roleNeedsAction(role) && <span className="action-dot">!</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="game-content">
         {/* Captain View */}
-        {myRole === 'captain' && (
+        {(myRoles.length === 1 ? myRoles.includes('captain') : activeRole === 'captain') && (
           <div className="captain-panel">
             <h2>Captain's Controls</h2>
             <div className="map-container">
@@ -208,13 +306,13 @@ function Game({ user }) {
                 {SIMPLE_MAP.map((row, y) => (
                   <div key={y} className="map-row">
                     {row.map((cell, x) => {
-                      const isMyPos = mySub?.position.x === x && mySub?.position.y === y
-                      const isPath = mySub?.path.some(p => p.x === x && p.y === y)
+                      const isMyPos = mySub?.position?.x === x && mySub?.position?.y === y
+                      const isPath = mySub?.path?.some(p => p.x === x && p.y === y)
                       return (
                         <div
                           key={x}
                           className={`map-cell ${cell ? 'island' : 'water'} ${isMyPos ? 'submarine' : ''} ${isPath ? 'path' : ''}`}
-                          onClick={() => mySub?.systems.torpedo >= 3 && handleFireTorpedo(x, y)}
+                          onClick={() => mySub?.systems?.torpedo >= 3 && handleFireTorpedo(x, y)}
                         >
                           {isMyPos && '🔴'}
                         </div>
@@ -258,10 +356,10 @@ function Game({ user }) {
                   <span>{sys.icon} {sys.name}</span>
                   <div className="charge-bar">
                     {Array(sys.max).fill(0).map((_, i) => (
-                      <span key={i} className={`charge-pip ${i < (mySub?.systems[sys.id] || 0) ? 'filled' : ''}`} />
+                      <span key={i} className={`charge-pip ${i < (mySub?.systems?.[sys.id] || 0) ? 'filled' : ''}`} />
                     ))}
                   </div>
-                  {sys.id === 'torpedo' && mySub?.systems.torpedo >= 3 && (
+                  {sys.id === 'torpedo' && mySub?.systems?.torpedo >= 3 && (
                     <button className="fire-btn">FIRE!</button>
                   )}
                 </div>
@@ -271,59 +369,134 @@ function Game({ user }) {
         )}
 
         {/* First Mate View */}
-        {myRole === 'first-mate' && (
+        {(myRoles.length === 1 ? myRoles.includes('first-mate') : activeRole === 'first-mate') && (
           <div className="first-mate-panel">
             <h2>First Mate's Station</h2>
-            {lastMove?.team === myTeam && awaitingConfirmation && (
-              <div className="move-alert">
-                <p>Captain moved: <strong>{lastMove.direction}</strong></p>
-                <p>Charge a system:</p>
+
+            {!awaitingConfirmation && (
+              <div className="waiting-captain">
+                <p>Waiting for Captain to move...</p>
               </div>
             )}
-            <div className="systems-grid">
-              {SYSTEMS.map(sys => (
-                <button
-                  key={sys.id}
-                  className={`system-btn ${mySub?.systems[sys.id] >= sys.max ? 'full' : ''}`}
-                  onClick={() => handleChargeSystem(sys.id)}
-                  disabled={!awaitingConfirmation || mySub?.systems[sys.id] >= sys.max}
-                >
-                  <span className="system-icon">{sys.icon}</span>
-                  <span className="system-name">{sys.name}</span>
-                  <div className="charge-bar">
-                    {Array(sys.max).fill(0).map((_, i) => (
-                      <span key={i} className={`charge-pip ${i < (mySub?.systems[sys.id] || 0) ? 'filled' : ''}`} />
-                    ))}
-                  </div>
-                </button>
-              ))}
-            </div>
-            {awaitingConfirmation && !confirmedRoles.includes('first-mate') && (
-              <button className="aye-btn" onClick={handleAyeCaptain}>
-                ⚓ Aye Captain!
-              </button>
+
+            {awaitingConfirmation && (
+              <>
+                <div className="move-alert">
+                  <p>Captain moved: <strong>{lastMove?.direction}</strong></p>
+                  {!hasChargedSystem ? (
+                    <p className="action-required">Select a system to charge!</p>
+                  ) : (
+                    <p className="action-done">✓ System charged</p>
+                  )}
+                </div>
+
+                <div className="systems-grid">
+                  {SYSTEMS.map(sys => (
+                    <button
+                      key={sys.id}
+                      className={`system-btn ${mySub?.systems?.[sys.id] >= sys.max ? 'full' : ''} ${hasChargedSystem ? 'disabled' : ''}`}
+                      onClick={() => handleChargeSystem(sys.id)}
+                      disabled={hasChargedSystem || mySub?.systems?.[sys.id] >= sys.max}
+                    >
+                      <span className="system-icon">{sys.icon}</span>
+                      <span className="system-name">{sys.name}</span>
+                      <div className="charge-bar">
+                        {Array(sys.max).fill(0).map((_, i) => (
+                          <span key={i} className={`charge-pip ${i < (mySub?.systems?.[sys.id] || 0) ? 'filled' : ''}`} />
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {roleCanConfirm('first-mate') && (
+                  <button className="aye-btn" onClick={() => handleAyeCaptain('first-mate')}>
+                    ⚓ Aye Captain!
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
 
         {/* Engineer View */}
-        {myRole === 'engineer' && (
+        {(myRoles.length === 1 ? myRoles.includes('engineer') : activeRole === 'engineer') && (
           <div className="engineer-panel">
             <h2>Engineer's Station</h2>
-            <p>System damage management coming soon...</p>
-            {awaitingConfirmation && !confirmedRoles.includes('engineer') && (
-              <button className="aye-btn" onClick={handleAyeCaptain}>
-                ⚓ Aye Captain!
-              </button>
+
+            {!awaitingConfirmation && (
+              <div className="waiting-captain">
+                <p>Waiting for Captain to move...</p>
+              </div>
+            )}
+
+            {awaitingConfirmation && (
+              <>
+                <div className="move-alert">
+                  <p>Captain moved: <strong>{lastMove?.direction}</strong></p>
+                  {!hasMarkedDamage ? (
+                    <p className="action-required">Mark damage in the {lastMove?.direction} section!</p>
+                  ) : (
+                    <p className="action-done">✓ Damage marked</p>
+                  )}
+                </div>
+
+                <div className="circuit-board">
+                  {Object.entries(CIRCUIT_BOARD).map(([direction, slots]) => (
+                    <div
+                      key={direction}
+                      className={`circuit-section ${direction.toLowerCase()} ${lastMove?.direction === direction ? 'active' : ''}`}
+                    >
+                      <h4>{direction}</h4>
+                      <div className="damage-slots">
+                        {slots.map(slot => (
+                          <button
+                            key={slot.id}
+                            className={`damage-slot ${damagedSlots.includes(slot.id) ? 'damaged' : ''} ${slot.system}`}
+                            onClick={() => handleMarkDamage(slot.id)}
+                            disabled={
+                              hasMarkedDamage ||
+                              damagedSlots.includes(slot.id) ||
+                              lastMove?.direction !== direction
+                            }
+                            title={slot.system}
+                          >
+                            {damagedSlots.includes(slot.id) ? '✗' : '○'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="circuit-legend">
+                  <span className="legend-item torpedo">Torpedo</span>
+                  <span className="legend-item mine">Mine</span>
+                  <span className="legend-item drone">Drone</span>
+                  <span className="legend-item sonar">Sonar</span>
+                  <span className="legend-item silence">Silence</span>
+                </div>
+
+                {roleCanConfirm('engineer') && (
+                  <button className="aye-btn" onClick={() => handleAyeCaptain('engineer')}>
+                    ⚓ Aye Captain!
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
 
         {/* Radio Operator View */}
-        {myRole === 'radio-operator' && (
+        {(myRoles.length === 1 ? myRoles.includes('radio-operator') : activeRole === 'radio-operator') && (
           <div className="radio-operator-panel">
             <h2>Radio Operator's Station</h2>
-            <p>Listen for enemy movements and track their position!</p>
+
+            {!awaitingConfirmation && (
+              <div className="listening-status">
+                <p>🎧 Listening for enemy movements...</p>
+              </div>
+            )}
 
             <div className="tracking-controls">
               <h3>Mark Enemy Move</h3>
@@ -362,8 +535,8 @@ function Game({ user }) {
               </div>
             </div>
 
-            {awaitingConfirmation && !confirmedRoles.includes('radio-operator') && (
-              <button className="aye-btn" onClick={handleAyeCaptain}>
+            {roleCanConfirm('radio-operator') && (
+              <button className="aye-btn" onClick={() => handleAyeCaptain('radio-operator')}>
                 ⚓ Aye Captain!
               </button>
             )}

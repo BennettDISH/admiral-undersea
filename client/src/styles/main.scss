@@ -812,3 +812,244 @@ button {
   margin-bottom: 1.5rem;
   overflow: hidden;
 }
+
+// Waiting states
+.waiting-captain,
+.listening-status {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2rem;
+  border-radius: 12px;
+  text-align: center;
+  margin-bottom: 1.5rem;
+
+  p {
+    font-size: 1.1rem;
+    opacity: 0.8;
+  }
+}
+
+.action-required {
+  color: #ff9800;
+  font-weight: 600;
+}
+
+.action-done {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+// Engineer circuit board
+.circuit-board {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.circuit-section {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1rem;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  transition: all 0.3s;
+
+  &.active {
+    border-color: #ff9800;
+    background: rgba(255, 152, 0, 0.1);
+  }
+
+  h4 {
+    text-align: center;
+    margin-bottom: 0.75rem;
+    font-size: 1.2rem;
+  }
+
+  &.n h4 { color: #2196f3; }
+  &.s h4 { color: #f44336; }
+  &.e h4 { color: #4caf50; }
+  &.w h4 { color: #ff9800; }
+}
+
+.damage-slots {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.damage-slot {
+  width: 50px;
+  height: 50px;
+  border-radius: 8px;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+
+  &.torpedo { background: rgba(244, 67, 54, 0.3); border: 2px solid #f44336; }
+  &.mine { background: rgba(255, 152, 0, 0.3); border: 2px solid #ff9800; }
+  &.drone { background: rgba(33, 150, 243, 0.3); border: 2px solid #2196f3; }
+  &.sonar { background: rgba(156, 39, 176, 0.3); border: 2px solid #9c27b0; }
+  &.silence { background: rgba(76, 175, 80, 0.3); border: 2px solid #4caf50; }
+
+  &.damaged {
+    background: rgba(0, 0, 0, 0.5);
+    color: #f44336;
+  }
+
+  &:disabled:not(.damaged) {
+    opacity: 0.4;
+  }
+
+  &:hover:not(:disabled):not(.damaged) {
+    transform: scale(1.1);
+  }
+}
+
+.circuit-legend {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.legend-item {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+
+  &.torpedo { background: rgba(244, 67, 54, 0.3); }
+  &.mine { background: rgba(255, 152, 0, 0.3); }
+  &.drone { background: rgba(33, 150, 243, 0.3); }
+  &.sonar { background: rgba(156, 39, 176, 0.3); }
+  &.silence { background: rgba(76, 175, 80, 0.3); }
+}
+
+// Role tabs for multi-role players
+.role-tabs {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.role-tab {
+  padding: 0.75rem 1.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  text-transform: capitalize;
+  position: relative;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  &.active {
+    background: rgba(0, 212, 255, 0.3);
+    border: 2px solid #00d4ff;
+  }
+
+  &.needs-action {
+    animation: pulse 1s infinite;
+  }
+
+  .action-dot {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 20px;
+    height: 20px;
+    background: #ff9800;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 0.8rem;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.4); }
+  50% { box-shadow: 0 0 0 10px rgba(255, 152, 0, 0); }
+}
+
+.roles-badge {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  text-transform: capitalize;
+}
+
+// Updated lobby role selection
+.role-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.role-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+
+  &.selected {
+    background: rgba(0, 212, 255, 0.2);
+    border-color: #00d4ff;
+  }
+
+  &.automated {
+    background: rgba(156, 39, 176, 0.2);
+    border-color: #9c27b0;
+  }
+}
+
+.role-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+
+  .role-name {
+    font-weight: 600;
+  }
+
+  .assigned-to {
+    font-size: 0.85rem;
+    opacity: 0.7;
+  }
+}
+
+.role-controls {
+  display: flex;
+  gap: 1rem;
+}
+
+.role-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+
+  input {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+  }
+
+  &.auto {
+    color: #9c27b0;
+  }
+}

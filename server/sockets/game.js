@@ -17,17 +17,19 @@ function setupGameSockets(io) {
 
       console.log(`${username} joined game ${gameCode}`);
 
-      // Look up existing team/role from database
+      // Look up existing team/roles from database
       try {
         const gameResult = await db.query('SELECT id FROM games WHERE code = $1', [gameCode]);
         if (gameResult.rows.length > 0) {
           const playerResult = await db.query(
-            'SELECT team, role FROM game_players WHERE game_id = $1 AND user_id = $2',
+            'SELECT team, role, roles FROM game_players WHERE game_id = $1 AND user_id = $2',
             [gameResult.rows[0].id, userId]
           );
           if (playerResult.rows.length > 0) {
             socket.team = playerResult.rows[0].team;
-            socket.role = playerResult.rows[0].role;
+            // Parse roles - use roles column if available, fall back to role
+            const rolesStr = playerResult.rows[0].roles || playerResult.rows[0].role || '';
+            socket.roles = rolesStr.split(',').filter(r => r && r !== 'unassigned');
             // Join team-specific room for targeted messages
             if (socket.team) {
               socket.join(`${roomName}:${socket.team}`);
@@ -81,8 +83,8 @@ function setupGameSockets(io) {
       }
     });
 
-    // Select role
-    socket.on('select-role', async ({ gameCode, userId, role }) => {
+    // Select roles (multiple)
+    socket.on('select-roles', async ({ gameCode, userId, roles }) => {
       const roomName = `game:${gameCode}`;
 
       try {
@@ -91,17 +93,36 @@ function setupGameSockets(io) {
 
         const gameId = gameResult.rows[0].id;
 
+        // Store roles as comma-separated string
+        const rolesStr = roles.join(',');
+
         await db.query(
-          `UPDATE game_players SET role = $1 WHERE game_id = $2 AND user_id = $3`,
-          [role, gameId, userId]
+          `UPDATE game_players SET role = $1, roles = $1 WHERE game_id = $2 AND user_id = $3`,
+          [rolesStr, gameId, userId]
         );
 
-        socket.role = role;
+        socket.roles = roles;
 
-        io.to(roomName).emit('role-updated', { userId, username: socket.username, role });
+        io.to(roomName).emit('roles-updated', { userId, username: socket.username, roles });
       } catch (error) {
-        console.error('Select role error:', error);
+        console.error('Select roles error:', error);
       }
+    });
+
+    // Set automated roles for a team
+    socket.on('set-automated-roles', async ({ gameCode, team, automatedRoles }) => {
+      const roomName = `game:${gameCode}`;
+
+      // Store in game state
+      let state = gameStates.get(gameCode);
+      if (!state) {
+        state = { automatedRoles: {} };
+        gameStates.set(gameCode, state);
+      }
+      if (!state.automatedRoles) state.automatedRoles = {};
+      state.automatedRoles[team] = automatedRoles;
+
+      io.to(roomName).emit('automated-roles-updated', { team, automatedRoles });
     });
 
     // Captain moves
@@ -177,6 +198,26 @@ function setupGameSockets(io) {
         sub.confirmedRoles = [];
         io.to(roomName).emit('turn-complete', { team });
       }
+    });
+
+    // Engineer marks damage
+    socket.on('mark-damage', ({ gameCode, slotId, direction }) => {
+      const roomName = `game:${gameCode}`;
+
+      const state = gameStates.get(gameCode);
+      if (!state) return;
+
+      const team = socket.team;
+      if (!team) return;
+
+      // Track damage in game state (could affect systems later)
+      if (!state.submarines[team].damage) {
+        state.submarines[team].damage = [];
+      }
+      state.submarines[team].damage.push({ slotId, direction });
+
+      // Notify team that damage was marked
+      io.to(`${roomName}:${team}`).emit('damage-marked', { team, slotId, direction });
     });
 
     // First mate charges system
