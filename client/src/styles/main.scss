@@ -1053,3 +1053,191 @@ button {
     color: #9c27b0;
   }
 }
+
+// Captain automation panel
+.automation-panel {
+  background: rgba(156, 39, 176, 0.1);
+  border: 2px solid rgba(156, 39, 176, 0.3);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+
+  h3 {
+    color: #9c27b0;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+}
+
+.auto-section {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  h4 {
+    color: #00d4ff;
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+  }
+}
+
+.auto-hint {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  margin-bottom: 0.75rem;
+}
+
+.auto-status {
+  color: #4caf50;
+  font-size: 0.9rem;
+}
+
+// First Mate priority list
+.priority-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.priority-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  transition: all 0.2s;
+
+  &.full {
+    opacity: 0.5;
+  }
+
+  &.next {
+    background: rgba(0, 212, 255, 0.2);
+    border: 1px solid #00d4ff;
+  }
+}
+
+.priority-rank {
+  width: 24px;
+  height: 24px;
+  background: rgba(0, 212, 255, 0.3);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.8rem;
+}
+
+.priority-system {
+  flex: 1;
+}
+
+.priority-status {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.priority-controls {
+  display: flex;
+  gap: 0.25rem;
+
+  button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: rgba(255, 255, 255, 0.1);
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:disabled {
+      opacity: 0.3;
+    }
+  }
+}
+
+.next-charge {
+  margin-top: 0.75rem;
+  text-align: center;
+  font-size: 0.9rem;
+
+  strong {
+    color: #00d4ff;
+  }
+}
+
+// Engineer direction status
+.direction-status {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.direction-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+
+  &.safe {
+    background: rgba(76, 175, 80, 0.2);
+  }
+
+  &.medium {
+    background: rgba(255, 152, 0, 0.2);
+  }
+
+  &.high {
+    background: rgba(244, 67, 54, 0.2);
+  }
+}
+
+.direction-label {
+  font-weight: bold;
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.damage-indicator {
+  display: flex;
+  gap: 3px;
+}
+
+.damage-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(76, 175, 80, 0.5);
+
+  &.damaged {
+    background: rgba(244, 67, 54, 0.8);
+  }
+}
+
+.danger-label {
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.direction-recommendation {
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+
+  strong {
+    color: #4caf50;
+  }
+}

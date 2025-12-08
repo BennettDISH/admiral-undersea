@@ -70,6 +70,10 @@ function Game({ user }) {
   // Engineer's damage tracking
   const [damagedSlots, setDamagedSlots] = useState([])
 
+  // Automation settings (controlled by Captain)
+  const [automatedRoles, setAutomatedRoles] = useState([])
+  const [systemPriority, setSystemPriority] = useState(['torpedo', 'mine', 'drone', 'sonar', 'silence'])
+
   useEffect(() => {
     loadGame()
     connectSocket()
@@ -150,6 +154,17 @@ function Game({ user }) {
       navigate('/')
     })
 
+    socket.on('automated-roles-updated', ({ team, automatedRoles: roles }) => {
+      if (team === myTeam) {
+        setAutomatedRoles(roles)
+      }
+    })
+
+    socket.on('automation-action', ({ role, action, details }) => {
+      // Show what automated roles did
+      console.log(`Auto ${role}: ${action}`, details)
+    })
+
     return () => {
       socket.off('game-state')
       socket.off('game-started')
@@ -162,6 +177,8 @@ function Game({ user }) {
       socket.off('torpedo-hit')
       socket.off('torpedo-miss')
       socket.off('game-over')
+      socket.off('automated-roles-updated')
+      socket.off('automation-action')
     }
   }, [code, user, myTeam, myRoles])
 
@@ -242,6 +259,52 @@ function Game({ user }) {
     if (!mySub || mySub.systems.torpedo < 3) return
     socket.emit('fire-torpedo', { gameCode: code, target: { x, y } })
   }
+
+  // Update system priority order (drag & drop or buttons)
+  const moveSystemPriority = (systemId, direction) => {
+    const idx = systemPriority.indexOf(systemId)
+    if (idx === -1) return
+    const newIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (newIdx < 0 || newIdx >= systemPriority.length) return
+
+    const newPriority = [...systemPriority]
+    newPriority.splice(idx, 1)
+    newPriority.splice(newIdx, 0, systemId)
+    setSystemPriority(newPriority)
+    socket.emit('set-system-priority', { gameCode: code, team: myTeam, systemPriority: newPriority })
+  }
+
+  // Calculate engineer board status per direction
+  const getEngineerBoardStatus = () => {
+    const status = {}
+    Object.entries(CIRCUIT_BOARD).forEach(([direction, slots]) => {
+      const availableSlots = slots.filter(s => !damagedSlots.includes(s.id)).length
+      const totalSlots = slots.length
+      status[direction] = {
+        available: availableSlots,
+        total: totalSlots,
+        danger: availableSlots <= 1 ? 'high' : availableSlots === totalSlots ? 'safe' : 'medium'
+      }
+    })
+    return status
+  }
+
+  // Get next system to charge based on priority (for automation display)
+  const getNextSystemToCharge = () => {
+    const mySub = gameState?.submarines[myTeam]
+    if (!mySub) return null
+
+    for (const systemId of systemPriority) {
+      const sys = SYSTEMS.find(s => s.id === systemId)
+      if (sys && (mySub.systems[systemId] || 0) < sys.max) {
+        return systemId
+      }
+    }
+    return null
+  }
+
+  const engineerStatus = getEngineerBoardStatus()
+  const nextAutoCharge = getNextSystemToCharge()
 
   if (!gameState) {
     return <div className="loading">Loading game...</div>
@@ -365,6 +428,82 @@ function Game({ user }) {
                 </div>
               ))}
             </div>
+
+            {/* Automation Control Panel - only show if there are automated roles */}
+            {automatedRoles.length > 0 && (
+              <div className="automation-panel">
+                <h3>Automation Control</h3>
+
+                {/* First Mate automation - System Priority */}
+                {automatedRoles.includes('first-mate') && (
+                  <div className="auto-section first-mate-auto">
+                    <h4>First Mate Priority</h4>
+                    <p className="auto-hint">Systems will be charged in this order:</p>
+                    <div className="priority-list">
+                      {systemPriority.map((sysId, idx) => {
+                        const sys = SYSTEMS.find(s => s.id === sysId)
+                        const isFull = (mySub?.systems?.[sysId] || 0) >= sys.max
+                        const isNext = sysId === nextAutoCharge
+                        return (
+                          <div key={sysId} className={`priority-item ${isFull ? 'full' : ''} ${isNext ? 'next' : ''}`}>
+                            <span className="priority-rank">{idx + 1}</span>
+                            <span className="priority-system">{sys.icon} {sys.name}</span>
+                            <span className="priority-status">
+                              {mySub?.systems?.[sysId] || 0}/{sys.max}
+                            </span>
+                            <div className="priority-controls">
+                              <button onClick={() => moveSystemPriority(sysId, 'up')} disabled={idx === 0}>▲</button>
+                              <button onClick={() => moveSystemPriority(sysId, 'down')} disabled={idx === systemPriority.length - 1}>▼</button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {nextAutoCharge && (
+                      <p className="next-charge">Next charge: <strong>{SYSTEMS.find(s => s.id === nextAutoCharge)?.name}</strong></p>
+                    )}
+                  </div>
+                )}
+
+                {/* Engineer automation - Direction Status */}
+                {automatedRoles.includes('engineer') && (
+                  <div className="auto-section engineer-auto">
+                    <h4>Engineering Status</h4>
+                    <p className="auto-hint">Circuit board damage per direction:</p>
+                    <div className="direction-status">
+                      {Object.entries(engineerStatus).map(([dir, status]) => (
+                        <div key={dir} className={`direction-item ${status.danger}`}>
+                          <span className="direction-label">{dir}</span>
+                          <div className="damage-indicator">
+                            {Array(status.total).fill(0).map((_, i) => (
+                              <span key={i} className={`damage-dot ${i >= status.available ? 'damaged' : ''}`} />
+                            ))}
+                          </div>
+                          <span className="danger-label">
+                            {status.danger === 'high' ? '⚠️' : status.danger === 'safe' ? '✓' : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="direction-recommendation">
+                      <strong>Recommended:</strong>{' '}
+                      {Object.entries(engineerStatus)
+                        .filter(([_, s]) => s.danger === 'safe')
+                        .map(([dir]) => dir)
+                        .join(', ') || 'All directions have some damage'}
+                    </div>
+                  </div>
+                )}
+
+                {/* Radio Operator automation */}
+                {automatedRoles.includes('radio-operator') && (
+                  <div className="auto-section radio-auto">
+                    <h4>Radio Operator</h4>
+                    <p className="auto-status">Auto-confirming moves</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

@@ -116,13 +116,29 @@ function setupGameSockets(io) {
       // Store in game state
       let state = gameStates.get(gameCode);
       if (!state) {
-        state = { automatedRoles: {} };
+        state = { automatedRoles: {}, systemPriority: {} };
         gameStates.set(gameCode, state);
       }
       if (!state.automatedRoles) state.automatedRoles = {};
       state.automatedRoles[team] = automatedRoles;
 
+      // Also update the submarine's automatedRoles array
+      if (state.submarines && state.submarines[team]) {
+        state.submarines[team].automatedRoles = automatedRoles;
+      }
+
       io.to(roomName).emit('automated-roles-updated', { team, automatedRoles });
+    });
+
+    // Set system priority for auto-charging (First Mate automation)
+    socket.on('set-system-priority', ({ gameCode, team, systemPriority }) => {
+      let state = gameStates.get(gameCode);
+      if (!state) {
+        state = { systemPriority: {} };
+        gameStates.set(gameCode, state);
+      }
+      if (!state.systemPriority) state.systemPriority = {};
+      state.systemPriority[team] = systemPriority;
     });
 
     // Captain moves
@@ -168,6 +184,15 @@ function setupGameSockets(io) {
       // Play sound for enemy team's radio operator only
       const enemyTeam = team === 'alpha' ? 'bravo' : 'alpha';
       io.to(`${roomName}:${enemyTeam}`).emit('play-move-sound', { team, direction });
+
+      // Handle automation after a short delay to let UI update
+      const automatedRoles = state.automatedRoles?.[team] || sub.automatedRoles || [];
+
+      if (automatedRoles.length > 0) {
+        setTimeout(() => {
+          performAutomation(io, gameCode, team, direction, state, automatedRoles);
+        }, 500);
+      }
     });
 
     // Role confirms (Aye Captain)
@@ -379,6 +404,125 @@ function getTeamVisibleState(state, team) {
     currentTurn: state.currentTurn,
     winner: state.winner
   };
+}
+
+// Circuit board slots for engineer automation
+const CIRCUIT_BOARD = {
+  N: [{ id: 'n1', system: 'torpedo' }, { id: 'n2', system: 'mine' }, { id: 'n3', system: 'sonar' }],
+  S: [{ id: 's1', system: 'drone' }, { id: 's2', system: 'silence' }, { id: 's3', system: 'torpedo' }],
+  E: [{ id: 'e1', system: 'mine' }, { id: 'e2', system: 'drone' }, { id: 'e3', system: 'silence' }],
+  W: [{ id: 'w1', system: 'sonar' }, { id: 'w2', system: 'torpedo' }, { id: 'w3', system: 'mine' }],
+};
+
+// Default system priority for First Mate automation
+const DEFAULT_PRIORITY = ['torpedo', 'mine', 'drone', 'sonar', 'silence'];
+
+// Perform automated actions after captain moves
+function performAutomation(io, gameCode, team, direction, state, automatedRoles) {
+  const roomName = `game:${gameCode}`;
+  const sub = state.submarines[team];
+
+  // First Mate automation - charge system based on priority
+  if (automatedRoles.includes('first-mate')) {
+    const priority = state.systemPriority?.[team] || DEFAULT_PRIORITY;
+    const systemToCharge = findNextSystemToCharge(sub.systems, priority);
+
+    if (systemToCharge) {
+      sub.systems[systemToCharge] = Math.min(sub.systems[systemToCharge] + 1, getSystemMax(systemToCharge));
+      io.to(`${roomName}:${team}`).emit('system-charged', {
+        team,
+        system: systemToCharge,
+        value: sub.systems[systemToCharge]
+      });
+      io.to(`${roomName}:${team}`).emit('automation-action', {
+        role: 'first-mate',
+        action: 'charged',
+        details: { system: systemToCharge }
+      });
+    }
+
+    // Auto-confirm first mate
+    if (!sub.confirmedRoles.includes('first-mate')) {
+      sub.confirmedRoles.push('first-mate');
+      io.to(roomName).emit('role-confirmed', { team, role: 'first-mate', userId: 'auto' });
+    }
+  }
+
+  // Engineer automation - mark damage in least impactful slot
+  if (automatedRoles.includes('engineer')) {
+    const slots = CIRCUIT_BOARD[direction];
+    const damage = sub.damage || [];
+    const damagedSlotIds = damage.map(d => d.slotId);
+
+    // Find first available slot
+    const availableSlot = slots.find(s => !damagedSlotIds.includes(s.id));
+    if (availableSlot) {
+      if (!sub.damage) sub.damage = [];
+      sub.damage.push({ slotId: availableSlot.id, direction });
+      io.to(`${roomName}:${team}`).emit('damage-marked', {
+        team,
+        slotId: availableSlot.id,
+        direction
+      });
+      io.to(`${roomName}:${team}`).emit('automation-action', {
+        role: 'engineer',
+        action: 'marked-damage',
+        details: { slotId: availableSlot.id, direction }
+      });
+    }
+
+    // Auto-confirm engineer
+    if (!sub.confirmedRoles.includes('engineer')) {
+      sub.confirmedRoles.push('engineer');
+      io.to(roomName).emit('role-confirmed', { team, role: 'engineer', userId: 'auto' });
+    }
+  }
+
+  // Radio Operator automation - just auto-confirm (no action needed)
+  if (automatedRoles.includes('radio-operator')) {
+    if (!sub.confirmedRoles.includes('radio-operator')) {
+      sub.confirmedRoles.push('radio-operator');
+      io.to(roomName).emit('role-confirmed', { team, role: 'radio-operator', userId: 'auto' });
+      io.to(`${roomName}:${team}`).emit('automation-action', {
+        role: 'radio-operator',
+        action: 'confirmed',
+        details: {}
+      });
+    }
+  }
+
+  // Check if all required roles are now confirmed
+  const requiredRoles = ['first-mate', 'engineer', 'radio-operator'];
+  const allConfirmed = requiredRoles.every(r =>
+    sub.confirmedRoles.includes(r) || automatedRoles.includes(r)
+  );
+
+  if (allConfirmed) {
+    sub.awaitingConfirmation = false;
+    sub.confirmedRoles = [];
+    io.to(roomName).emit('turn-complete', { team });
+  }
+
+  // Send updated game state
+  io.to(`${roomName}:${team}`).emit('game-state', getTeamVisibleState(state, team));
+}
+
+// Find next system to charge based on priority
+function findNextSystemToCharge(systems, priority) {
+  const maxValues = {
+    torpedo: 3,
+    mine: 3,
+    drone: 4,
+    sonar: 3,
+    silence: 6
+  };
+
+  for (const system of priority) {
+    if ((systems[system] || 0) < maxValues[system]) {
+      return system;
+    }
+  }
+  return null;
 }
 
 module.exports = setupGameSockets;
