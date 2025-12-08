@@ -48,7 +48,14 @@ function setupGameSockets(io) {
 
       // Send current game state if exists (filtered for this team)
       if (gameStates.has(gameCode) && socket.team) {
-        socket.emit('game-state', getTeamVisibleState(gameStates.get(gameCode), socket.team));
+        const state = gameStates.get(gameCode);
+        const visibleState = getTeamVisibleState(state, socket.team);
+
+        // Include automation settings
+        visibleState.automatedRoles = state.automatedRoles?.[socket.team] || [];
+        visibleState.systemPriority = state.systemPriority?.[socket.team] || DEFAULT_PRIORITY;
+
+        socket.emit('game-state', visibleState);
       }
     });
 
