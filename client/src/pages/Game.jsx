@@ -80,8 +80,26 @@ function Game({ user }) {
 
     socket.emit('join-game', { gameCode: code, userId: user.id, username: user.username })
 
-    socket.on('game-state', (state) => setGameState(state))
-    socket.on('game-started', (state) => setGameState(state))
+    socket.on('game-state', (state) => {
+      setGameState(state)
+      // Update automation settings if included
+      if (state.automatedRoles) {
+        setAutomatedRoles(state.automatedRoles)
+      }
+      if (state.systemPriority) {
+        setSystemPriority(state.systemPriority)
+      }
+    })
+    socket.on('game-started', (state) => {
+      setGameState(state)
+      // Load automation settings from game start
+      if (state.automatedRoles) {
+        setAutomatedRoles(state.automatedRoles)
+      }
+      if (state.systemPriority) {
+        setSystemPriority(state.systemPriority)
+      }
+    })
 
     socket.on('move-announced', ({ team, direction, awaitingConfirmation: awaiting }) => {
       setLastMove({ team, direction })

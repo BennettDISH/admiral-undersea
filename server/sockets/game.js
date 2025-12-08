@@ -3,6 +3,9 @@ const db = require('../config/database');
 // In-memory game state (for real-time updates)
 const gameStates = new Map();
 
+// Default system priority for First Mate automation
+const DEFAULT_PRIORITY = ['torpedo', 'mine', 'drone', 'sonar', 'silence'];
+
 function setupGameSockets(io) {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
@@ -311,12 +314,36 @@ function setupGameSockets(io) {
           [gameCode]
         );
 
+        // Preserve any automation settings from lobby
+        const existingState = gameStates.get(gameCode);
+        const automatedRoles = existingState?.automatedRoles || {};
+        const systemPriority = existingState?.systemPriority || {};
+
         const state = initGameState();
+        state.automatedRoles = automatedRoles;
+        state.systemPriority = systemPriority;
+
+        // Apply automation settings to submarines
+        if (automatedRoles.alpha) {
+          state.submarines.alpha.automatedRoles = automatedRoles.alpha;
+        }
+        if (automatedRoles.bravo) {
+          state.submarines.bravo.automatedRoles = automatedRoles.bravo;
+        }
+
         gameStates.set(gameCode, state);
 
-        // Send filtered state to each team
-        io.to(`${roomName}:alpha`).emit('game-started', getTeamVisibleState(state, 'alpha'));
-        io.to(`${roomName}:bravo`).emit('game-started', getTeamVisibleState(state, 'bravo'));
+        // Send filtered state to each team, including their automation settings
+        const alphaState = getTeamVisibleState(state, 'alpha');
+        alphaState.automatedRoles = automatedRoles.alpha || [];
+        alphaState.systemPriority = systemPriority.alpha || DEFAULT_PRIORITY;
+
+        const bravoState = getTeamVisibleState(state, 'bravo');
+        bravoState.automatedRoles = automatedRoles.bravo || [];
+        bravoState.systemPriority = systemPriority.bravo || DEFAULT_PRIORITY;
+
+        io.to(`${roomName}:alpha`).emit('game-started', alphaState);
+        io.to(`${roomName}:bravo`).emit('game-started', bravoState);
       } catch (error) {
         console.error('Start game error:', error);
       }
@@ -413,9 +440,6 @@ const CIRCUIT_BOARD = {
   E: [{ id: 'e1', system: 'mine' }, { id: 'e2', system: 'drone' }, { id: 'e3', system: 'silence' }],
   W: [{ id: 'w1', system: 'sonar' }, { id: 'w2', system: 'torpedo' }, { id: 'w3', system: 'mine' }],
 };
-
-// Default system priority for First Mate automation
-const DEFAULT_PRIORITY = ['torpedo', 'mine', 'drone', 'sonar', 'silence'];
 
 // Perform automated actions after captain moves
 function performAutomation(io, gameCode, team, direction, state, automatedRoles) {
