@@ -73,11 +73,12 @@ app.post('/api/migrate-sso', async (req, res) => {
     const result = await response.json();
     // Update local users with central IDs
     let linked = 0;
-    if (result.imported) {
-      for (const imp of result.imported) {
-        await db.query('UPDATE users SET central_user_id = $1 WHERE LOWER(email) = LOWER($2) OR LOWER(username) = LOWER($3)', [imp.central_id, imp.email, imp.username]);
-        linked++;
-      }
+    const items = result.results || result.imported || [];
+    for (const imp of items) {
+      const centralId = imp.central_user_id || imp.central_id;
+      const uname = imp.local_username || imp.username;
+      await db.query('UPDATE users SET central_user_id = $1 WHERE LOWER(username) = LOWER($2)', [centralId, uname]);
+      linked++;
     }
     res.json({ message: 'Migration complete', total: users.rows.length, linked, result });
   } catch (error) {
