@@ -39,6 +39,53 @@ app.use('/api/games', gameRoutes);
 // Setup game sockets
 setupGameSockets(io);
 
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Temporary SSO migration endpoint
+app.post('/api/migrate-sso', async (req, res) => {
+  const { secret } = req.body;
+  if (secret !== process.env.SSO_CLIENT_SECRET) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const db = require('./config/database');
+    // Ensure central_user_id column exists
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS central_user_id INTEGER UNIQUE');
+    // Get all users without central_user_id
+    const users = await db.query('SELECT id, username, email, password_hash FROM users WHERE central_user_id IS NULL');
+    if (users.rows.length === 0) {
+      return res.json({ message: 'No users to migrate', migrated: 0 });
+    }
+    // Send to central auth service for bulk import
+    const importPayload = {
+      users: users.rows.map(u => ({ username: u.username, email: u.email, password_hash: u.password_hash })),
+      client_id: process.env.SSO_CLIENT_ID,
+      client_secret: process.env.SSO_CLIENT_SECRET
+    };
+    const response = await fetch(`${process.env.AUTH_SERVICE_URL}/api/auth/proxy/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(importPayload)
+    });
+    const result = await response.json();
+    // Update local users with central IDs
+    let linked = 0;
+    if (result.imported) {
+      for (const imp of result.imported) {
+        await db.query('UPDATE users SET central_user_id = $1 WHERE LOWER(email) = LOWER($2) OR LOWER(username) = LOWER($3)', [imp.central_id, imp.email, imp.username]);
+        linked++;
+      }
+    }
+    res.json({ message: 'Migration complete', total: users.rows.length, linked, result });
+  } catch (error) {
+    console.error('Migration error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Serve static files from React build
 app.use(express.static(path.join(__dirname, '../client/dist')));
 

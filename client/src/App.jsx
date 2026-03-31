@@ -7,6 +7,7 @@ import CreateGame from './pages/CreateGame'
 import JoinGame from './pages/JoinGame'
 import Lobby from './pages/Lobby'
 import Game from './pages/Game'
+import AuthCallback from './pages/AuthCallback'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -44,6 +45,10 @@ function App() {
         <Route
           path="/register"
           element={user ? <Navigate to="/" /> : <Register onLogin={handleLogin} />}
+        />
+        <Route
+          path="/auth/callback"
+          element={<AuthCallback onLogin={handleLogin} />}
         />
         <Route
           path="/"

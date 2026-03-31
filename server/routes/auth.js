@@ -1,8 +1,40 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../config/database');
+const { SSO_ENABLED, centralRegister, centralLogin, exchangeCode } = require('../config/sso');
 
 const router = express.Router();
+
+async function findOrCreateLocalUser(centralUser) {
+  // Check by central_user_id
+  let result = await db.query('SELECT id, email, username, role, created_at FROM users WHERE central_user_id = $1', [centralUser.id]);
+  if (result.rows.length > 0) {
+    // Sync profile
+    const local = result.rows[0];
+    if (local.email !== centralUser.email || local.username !== centralUser.username) {
+      await db.query('UPDATE users SET email = $1, username = $2, updated_at = NOW() WHERE id = $3', [centralUser.email, centralUser.username, local.id]);
+      local.email = centralUser.email;
+      local.username = centralUser.username;
+    }
+    return local;
+  }
+
+  // Check by email
+  result = await db.query('SELECT id, email, username, role, created_at FROM users WHERE LOWER(email) = LOWER($1)', [centralUser.email]);
+  if (result.rows.length > 0) {
+    await db.query('UPDATE users SET central_user_id = $1, updated_at = NOW() WHERE id = $2', [centralUser.id, result.rows[0].id]);
+    return result.rows[0];
+  }
+
+  // Create new local user
+  result = await db.query(
+    `INSERT INTO users (email, username, password_hash, role, is_active, central_user_id, created_at)
+     VALUES ($1, $2, $3, 'player', true, $4, NOW())
+     RETURNING id, email, username, role, created_at`,
+    [centralUser.email, centralUser.username, 'sso-managed', centralUser.id]
+  );
+  return result.rows[0];
+}
 
 // Register new user
 router.post('/register', async (req, res) => {
@@ -17,7 +49,7 @@ router.post('/register', async (req, res) => {
   }
 
   try {
-    // Check if email or username already exists
+    // Check if email or username already exists locally
     const existing = await db.query(
       'SELECT id FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($2)',
       [email, username]
@@ -27,13 +59,24 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email or username already exists' });
     }
 
+    // Register centrally if SSO enabled
+    let centralUserId = null;
+    if (SSO_ENABLED) {
+      try {
+        const centralResult = await centralRegister({ username, email, password });
+        centralUserId = centralResult.user?.id || null;
+      } catch (err) {
+        console.error('Central register failed, continuing locally:', err.message);
+      }
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     const result = await db.query(
-      `INSERT INTO users (email, username, password_hash, role, is_active, created_at)
-       VALUES ($1, $2, $3, 'player', true, NOW())
+      `INSERT INTO users (email, username, password_hash, role, is_active, central_user_id, created_at)
+       VALUES ($1, $2, $3, 'player', true, $4, NOW())
        RETURNING id, email, username, role, created_at`,
-      [email.toLowerCase(), username, passwordHash]
+      [email.toLowerCase(), username, passwordHash, centralUserId]
     );
 
     res.status(201).json({
@@ -55,8 +98,21 @@ router.post('/login', async (req, res) => {
   }
 
   try {
+    // Try central login first if SSO enabled
+    if (SSO_ENABLED) {
+      try {
+        const centralResult = await centralLogin({ email: username, password });
+        if (centralResult.user) {
+          const localUser = await findOrCreateLocalUser(centralResult.user);
+          return res.json({ success: true, user: localUser });
+        }
+      } catch (err) {
+        console.error('Central login failed, trying local:', err.message);
+      }
+    }
+
     const result = await db.query(
-      'SELECT id, email, username, password_hash, role, created_at FROM users WHERE LOWER(username) = LOWER($1) AND is_active = true',
+      'SELECT id, email, username, password_hash, role, created_at FROM users WHERE (LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)) AND is_active = true',
       [username]
     );
 
@@ -71,7 +127,6 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Don't send password hash to client
     delete user.password_hash;
 
     res.json({
@@ -81,6 +136,28 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// SSO callback
+router.post('/sso-callback', async (req, res) => {
+  if (!SSO_ENABLED) {
+    return res.status(404).json({ error: 'SSO not configured' });
+  }
+
+  try {
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ error: 'Authorization code required' });
+    }
+
+    const data = await exchangeCode(code);
+    const localUser = await findOrCreateLocalUser(data.user);
+
+    res.json({ success: true, user: localUser });
+  } catch (error) {
+    console.error('SSO callback error:', error);
+    res.status(401).json({ error: 'SSO authentication failed' });
   }
 });
 

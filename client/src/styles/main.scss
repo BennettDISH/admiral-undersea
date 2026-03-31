@@ -116,6 +116,46 @@ button {
   font-size: 0.9rem;
 }
 
+.sso-divider {
+  display: flex;
+  align-items: center;
+  margin: 1.25rem 0;
+
+  &::before, &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  span {
+    color: rgba(255, 255, 255, 0.6);
+    padding: 0 1rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+}
+
+.sso-button {
+  width: 100%;
+  padding: 0.875rem;
+  background: transparent;
+  color: #00d4ff;
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s;
+
+  &:hover {
+    border-color: #00d4ff;
+    background: rgba(0, 212, 255, 0.1);
+    box-shadow: 0 4px 16px rgba(0, 212, 255, 0.2);
+    transform: translateY(-2px);
+  }
+}
+
 .auth-link {
   text-align: center;
   margin-top: 1.5rem;

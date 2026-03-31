@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { auth } from '../services/api'
 
+const AUTH_SERVICE_URL = import.meta.env.VITE_AUTH_SERVICE_URL
+const SSO_CLIENT_ID = import.meta.env.VITE_SSO_CLIENT_ID
+
 function Login({ onLogin }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -58,6 +61,30 @@ function Login({ onLogin }) {
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
+
+        {AUTH_SERVICE_URL && (
+          <>
+            <div className="sso-divider">
+              <span>or</span>
+            </div>
+            <button
+              type="button"
+              className="sso-button"
+              onClick={() => {
+                const state = crypto.randomUUID()
+                sessionStorage.setItem('sso_state', state)
+                const params = new URLSearchParams({
+                  client_id: SSO_CLIENT_ID,
+                  redirect_uri: `${window.location.origin}/auth/callback`,
+                  state
+                })
+                window.location.href = `${AUTH_SERVICE_URL}/oauth/authorize?${params}`
+              }}
+            >
+              Sign in with bennettdishman.com
+            </button>
+          </>
+        )}
 
         <p className="auth-link">
           Don't have an account? <Link to="/register">Register</Link>
