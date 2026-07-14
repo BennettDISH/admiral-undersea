@@ -21,6 +21,9 @@ function AuthCallback({ onLogin }) {
 
     auth.ssoLogin(code)
       .then(res => {
+        if (res.data.token) {
+          localStorage.setItem('token', res.data.token)
+        }
         onLogin(res.data.user)
         navigate('/')
       })

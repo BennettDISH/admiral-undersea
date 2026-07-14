@@ -76,6 +76,11 @@ function Game({ user }) {
   const [enemyPath, setEnemyPath] = useState([])
   const [lastMove, setLastMove] = useState(null)
 
+  // Torpedo targeting mode (armed by the FIRE! button, resolved by clicking the map)
+  const [firingMode, setFiringMode] = useState(false)
+  // End-of-game result screen ({ winner }) — replaces the old alert()
+  const [result, setResult] = useState(null)
+
   // Track if role has completed their action this turn
   const [hasChargedSystem, setHasChargedSystem] = useState(false)
   const [hasMarkedDamage, setHasMarkedDamage] = useState(false)
@@ -182,17 +187,25 @@ function Game({ user }) {
       }
     })
 
-    socket.on('torpedo-hit', ({ team, damage, enemyHealth }) => {
-      alert(`Torpedo hit! ${damage} damage dealt!`)
+    socket.on('torpedo-hit', ({ team, damage }) => {
+      setFiringMode(false)
+      if (team === myTeam) {
+        alert(`🎯 Direct hit! ${damage} damage dealt.`)
+      } else {
+        alert(`💥 We've been hit! ${damage} damage taken.`)
+      }
     })
 
     socket.on('torpedo-miss', ({ team }) => {
-      alert('Torpedo missed!')
+      setFiringMode(false)
+      // Only the firing team learns of a miss; the target isn't told a torpedo went by.
+      if (team === myTeam) {
+        alert('Torpedo missed!')
+      }
     })
 
     socket.on('game-over', ({ winner }) => {
-      alert(`Game Over! Team ${winner.toUpperCase()} wins!`)
-      navigate('/')
+      setResult({ winner })
     })
 
     socket.on('automated-roles-updated', ({ team, automatedRoles: roles }) => {
@@ -335,6 +348,7 @@ function Game({ user }) {
     const mySub = gameState?.submarines[myTeam]
     if (!mySub || mySub.systems.torpedo < 3) return
     socket.emit('fire-torpedo', { gameCode: code, target: { x, y } })
+    setFiringMode(false)
   }
 
   // Update system priority order (drag & drop or buttons)
@@ -388,6 +402,20 @@ function Game({ user }) {
     return <div className="loading">Loading game...</div>
   }
 
+  // End-of-game result screen (replaces the old alert + hard redirect)
+  if (result) {
+    const iWon = result.winner === myTeam
+    return (
+      <div className="game-page">
+        <div className="game-result">
+          <h1>{iWon ? '🏆 Victory!' : '💀 Defeat'}</h1>
+          <p>Team {result.winner?.toUpperCase()} sank the enemy submarine.</p>
+          <button className="aye-btn" onClick={() => navigate('/')}>Back to Home</button>
+        </div>
+      </div>
+    )
+  }
+
   const mySub = gameState.submarines[myTeam]
 
   // Check which roles need to act
@@ -417,7 +445,7 @@ function Game({ user }) {
           <span className="roles-badge">{myRoles.join(', ')}</span>
         </div>
         <div className="health-display">
-          <span>Health: {'❤️'.repeat(mySub?.health || 0)}{'🖤'.repeat(4 - (mySub?.health || 0))}</span>
+          <span>Health: {'❤️'.repeat(Math.max(0, mySub?.health || 0))}{'🖤'.repeat(Math.max(0, 4 - (mySub?.health || 0)))}</span>
         </div>
       </header>
 
@@ -444,18 +472,22 @@ function Game({ user }) {
             <h2>Captain's Controls</h2>
             <div className="captain-layout">
               <div className="captain-left">
+                {firingMode && mySub?.systems?.torpedo >= 3 && (
+                  <div className="firing-hint">🎯 Select a target cell — the torpedo damages that cell and its neighbours.</div>
+                )}
                 <div className="map-container">
-                  <div className="game-map">
+                  <div className={`game-map ${firingMode ? 'targeting' : ''}`}>
                     {SIMPLE_MAP.map((row, y) => (
                       <div key={y} className="map-row">
                         {row.map((cell, x) => {
                           const isMyPos = mySub?.position?.x === x && mySub?.position?.y === y
                           const isPath = mySub?.path?.some(p => p.x === x && p.y === y)
+                          const canTarget = firingMode && mySub?.systems?.torpedo >= 3 && !cell && !isMyPos
                           return (
                             <div
                               key={x}
-                              className={`map-cell ${cell ? 'island' : 'water'} ${isMyPos ? 'submarine' : ''} ${isPath ? 'path' : ''}`}
-                              onClick={() => mySub?.systems?.torpedo >= 3 && handleFireTorpedo(x, y)}
+                              className={`map-cell ${cell ? 'island' : 'water'} ${isMyPos ? 'submarine' : ''} ${isPath ? 'path' : ''} ${canTarget ? 'targetable' : ''}`}
+                              onClick={() => canTarget && handleFireTorpedo(x, y)}
                             >
                               {isMyPos && '🔴'}
                             </div>
@@ -505,7 +537,12 @@ function Game({ user }) {
                         ))}
                       </div>
                       {sys.id === 'torpedo' && mySub?.systems?.torpedo >= 3 && (
-                        <button className="fire-btn">FIRE!</button>
+                        <button
+                          className={`fire-btn ${firingMode ? 'active' : ''}`}
+                          onClick={() => setFiringMode(f => !f)}
+                        >
+                          {firingMode ? 'Cancel' : 'FIRE!'}
+                        </button>
                       )}
                     </div>
                   ))}

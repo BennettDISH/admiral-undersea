@@ -2,38 +2,55 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../config/database');
 const { SSO_ENABLED, centralRegister, centralLogin, exchangeCode } = require('../config/sso');
+const { signToken } = require('../config/jwt');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-async function findOrCreateLocalUser(centralUser) {
+// The central auth-service returns identity fields FLAT (central_user_id, username,
+// email, ...). Older/proxy responses may nest them under `user`. Accept both shapes.
+function normalizeCentral(raw) {
+  const u = (raw && raw.user) ? raw.user : (raw || {});
+  return {
+    central_user_id: u.central_user_id != null ? u.central_user_id : (u.id != null ? u.id : null),
+    email: u.email,
+    username: u.username
+  };
+}
+
+async function findOrCreateLocalUser(central) {
   // Check by central_user_id
-  let result = await db.query('SELECT id, email, username, role, created_at FROM users WHERE central_user_id = $1', [centralUser.id]);
-  if (result.rows.length > 0) {
-    // Sync profile
-    const local = result.rows[0];
-    if (local.email !== centralUser.email || local.username !== centralUser.username) {
-      await db.query('UPDATE users SET email = $1, username = $2, updated_at = NOW() WHERE id = $3', [centralUser.email, centralUser.username, local.id]);
-      local.email = centralUser.email;
-      local.username = centralUser.username;
+  if (central.central_user_id != null) {
+    const byCentral = await db.query(
+      'SELECT id, email, username, role, created_at FROM users WHERE central_user_id = $1',
+      [central.central_user_id]
+    );
+    if (byCentral.rows.length > 0) {
+      const local = byCentral.rows[0];
+      if (local.email !== central.email || local.username !== central.username) {
+        await db.query('UPDATE users SET email = $1, username = $2, updated_at = NOW() WHERE id = $3', [central.email, central.username, local.id]);
+        local.email = central.email;
+        local.username = central.username;
+      }
+      return local;
     }
-    return local;
   }
 
-  // Check by email
-  result = await db.query('SELECT id, email, username, role, created_at FROM users WHERE LOWER(email) = LOWER($1)', [centralUser.email]);
-  if (result.rows.length > 0) {
-    await db.query('UPDATE users SET central_user_id = $1, updated_at = NOW() WHERE id = $2', [centralUser.id, result.rows[0].id]);
-    return result.rows[0];
+  // Check by email — link the central id onto the existing local account
+  const byEmail = await db.query('SELECT id, email, username, role, created_at FROM users WHERE LOWER(email) = LOWER($1)', [central.email]);
+  if (byEmail.rows.length > 0) {
+    await db.query('UPDATE users SET central_user_id = $1, updated_at = NOW() WHERE id = $2', [central.central_user_id, byEmail.rows[0].id]);
+    return byEmail.rows[0];
   }
 
-  // Create new local user
-  result = await db.query(
+  // Create new local user shadowing the central identity
+  const created = await db.query(
     `INSERT INTO users (email, username, password_hash, role, is_active, central_user_id, created_at)
      VALUES ($1, $2, $3, 'player', true, $4, NOW())
      RETURNING id, email, username, role, created_at`,
-    [centralUser.email, centralUser.username, 'sso-managed', centralUser.id]
+    [central.email, central.username, 'sso-managed', central.central_user_id]
   );
-  return result.rows[0];
+  return created.rows[0];
 }
 
 // Register new user
@@ -64,7 +81,7 @@ router.post('/register', async (req, res) => {
     if (SSO_ENABLED) {
       try {
         const centralResult = await centralRegister({ username, email, password });
-        centralUserId = centralResult.user?.id || null;
+        centralUserId = normalizeCentral(centralResult).central_user_id;
       } catch (err) {
         console.error('Central register failed, continuing locally:', err.message);
       }
@@ -79,9 +96,11 @@ router.post('/register', async (req, res) => {
       [email.toLowerCase(), username, passwordHash, centralUserId]
     );
 
+    const user = result.rows[0];
     res.status(201).json({
       success: true,
-      user: result.rows[0]
+      token: signToken(user),
+      user
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -102,9 +121,10 @@ router.post('/login', async (req, res) => {
     if (SSO_ENABLED) {
       try {
         const centralResult = await centralLogin({ email: username, password });
-        if (centralResult.user) {
-          const localUser = await findOrCreateLocalUser(centralResult.user);
-          return res.json({ success: true, user: localUser });
+        const central = normalizeCentral(centralResult);
+        if (central.email) {
+          const localUser = await findOrCreateLocalUser(central);
+          return res.json({ success: true, token: signToken(localUser), user: localUser });
         }
       } catch (err) {
         console.error('Central login failed, trying local:', err.message);
@@ -131,6 +151,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       success: true,
+      token: signToken(user),
       user
     });
   } catch (error) {
@@ -152,9 +173,10 @@ router.post('/sso-callback', async (req, res) => {
     }
 
     const data = await exchangeCode(code);
-    const localUser = await findOrCreateLocalUser(data.user);
+    const central = normalizeCentral(data);
+    const localUser = await findOrCreateLocalUser(central);
 
-    res.json({ success: true, user: localUser });
+    res.json({ success: true, token: signToken(localUser), user: localUser });
   } catch (error) {
     console.error('SSO callback error:', error);
     res.status(401).json({ error: 'SSO authentication failed' });
@@ -162,28 +184,8 @@ router.post('/sso-callback', async (req, res) => {
 });
 
 // Get current user
-router.get('/me', async (req, res) => {
-  const userId = req.headers['x-user-id'];
-
-  if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-
-  try {
-    const result = await db.query(
-      'SELECT id, email, username, role, created_at FROM users WHERE id = $1 AND is_active = true',
-      [userId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    res.json({ user: result.rows[0] });
-  } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({ error: 'Failed to get user' });
-  }
+router.get('/me', requireAuth, (req, res) => {
+  res.json({ user: req.user });
 });
 
 module.exports = router;

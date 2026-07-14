@@ -23,6 +23,9 @@ function Register({ onLogin }) {
 
     try {
       const response = await auth.register(email, username, password)
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token)
+      }
       onLogin(response.data.user)
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed')

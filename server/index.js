@@ -9,6 +9,7 @@ const path = require('path');
 const authRoutes = require('./routes/auth');
 const gameRoutes = require('./routes/games');
 const setupGameSockets = require('./sockets/game');
+const initDb = require('./config/initDb');
 
 const app = express();
 const httpServer = createServer(app);
@@ -52,6 +53,16 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+async function start() {
+  try {
+    await initDb();
+  } catch (err) {
+    console.error('Database init failed (server will start, but DB features will error until this is fixed):', err.message);
+  }
+
+  httpServer.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+start();

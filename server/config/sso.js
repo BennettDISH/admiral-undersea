@@ -34,7 +34,7 @@ async function exchangeCode(code) {
   const response = await fetch(`${AUTH_SERVICE_URL}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, client_id: SSO_CLIENT_ID, client_secret: SSO_CLIENT_SECRET })
+    body: JSON.stringify({ grant_type: 'authorization_code', code, client_id: SSO_CLIENT_ID, client_secret: SSO_CLIENT_SECRET })
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));

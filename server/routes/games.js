@@ -1,7 +1,11 @@
 const express = require('express');
 const db = require('../config/database');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+
+// All game routes require an authenticated user.
+router.use(requireAuth);
 
 // Generate a random 6-character game code
 function generateGameCode() {
@@ -15,11 +19,8 @@ function generateGameCode() {
 
 // Create a new game
 router.post('/create', async (req, res) => {
-  const { userId, sameRoom, gameMode } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: 'User ID required' });
-  }
+  const { sameRoom, gameMode } = req.body;
+  const userId = req.user.id;
 
   try {
     let code = generateGameCode();

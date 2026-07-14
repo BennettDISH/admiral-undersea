@@ -18,6 +18,9 @@ function Login({ onLogin }) {
 
     try {
       const response = await auth.login(username, password)
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token)
+      }
       onLogin(response.data.user)
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed')

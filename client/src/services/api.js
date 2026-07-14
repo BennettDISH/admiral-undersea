@@ -5,13 +5,28 @@ const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-  const user = localStorage.getItem('user')
-  if (user) {
-    const { id } = JSON.parse(user)
-    config.headers['x-user-id'] = id
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`
   }
   return config
 })
+
+// If the session is rejected, clear it and bounce to login rather than leaving the
+// user stuck with a dead token.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 
 export const auth = {
   login: (username, password) => api.post('/auth/login', { username, password }),
