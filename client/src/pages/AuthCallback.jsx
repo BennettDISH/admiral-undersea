@@ -10,17 +10,18 @@ function AuthCallback({ onLogin }) {
     const params = new URLSearchParams(window.location.search)
     const code = params.get('code')
     const state = params.get('state')
-    const savedState = sessionStorage.getItem('sso_state')
 
-    if (!code || !state || state !== savedState) {
+    if (!code || !state) {
       setError('Invalid SSO callback')
       return
     }
 
-    sessionStorage.removeItem('sso_state')
-
-    auth.ssoLogin(code)
+    // The state is validated server-side against an httpOnly cookie set at /sso/login.
+    auth.ssoLogin(code, state)
       .then(res => {
+        if (res.data.token) {
+          localStorage.setItem('token', res.data.token)
+        }
         onLogin(res.data.user)
         navigate('/')
       })

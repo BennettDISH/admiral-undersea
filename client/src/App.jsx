@@ -8,6 +8,7 @@ import JoinGame from './pages/JoinGame'
 import Lobby from './pages/Lobby'
 import Game from './pages/Game'
 import AuthCallback from './pages/AuthCallback'
+import { disconnectSocket } from './services/socket'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -29,6 +30,9 @@ function App() {
   const handleLogout = () => {
     setUser(null)
     localStorage.removeItem('user')
+    localStorage.removeItem('token')
+    // Drop the socket so the next user re-authenticates the handshake as themselves.
+    disconnectSocket()
   }
 
   if (loading) {

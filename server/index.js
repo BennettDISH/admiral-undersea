@@ -4,11 +4,13 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const cookieParser = require('cookie-parser');
 const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const gameRoutes = require('./routes/games');
 const setupGameSockets = require('./sockets/game');
+const initDb = require('./config/initDb');
 
 const app = express();
 const httpServer = createServer(app);
@@ -21,6 +23,10 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 5000;
 
+// Trust the Railway proxy so req.protocol reflects the public https scheme (used to build
+// the OAuth redirect_uri) and secure cookies are honored.
+app.set('trust proxy', true);
+
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: false
@@ -31,6 +37,7 @@ app.use(cors({
 }));
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(cookieParser());
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -52,6 +59,16 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+async function start() {
+  try {
+    await initDb();
+  } catch (err) {
+    console.error('Database init failed (server will start, but DB features will error until this is fixed):', err.message);
+  }
+
+  httpServer.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+start();

@@ -1,15 +1,20 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { auth } from '../services/api'
-
-const AUTH_SERVICE_URL = import.meta.env.VITE_AUTH_SERVICE_URL
-const SSO_CLIENT_ID = import.meta.env.VITE_SSO_CLIENT_ID
 
 function Login({ onLogin }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [ssoEnabled, setSsoEnabled] = useState(false)
+
+  // SSO is configured entirely server-side now; ask whether to show the button.
+  useEffect(() => {
+    auth.config()
+      .then(res => setSsoEnabled(!!res.data.ssoEnabled))
+      .catch(() => setSsoEnabled(false))
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -18,6 +23,9 @@ function Login({ onLogin }) {
 
     try {
       const response = await auth.login(username, password)
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token)
+      }
       onLogin(response.data.user)
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed')
@@ -62,7 +70,7 @@ function Login({ onLogin }) {
           </button>
         </form>
 
-        {AUTH_SERVICE_URL && (
+        {ssoEnabled && (
           <>
             <div className="sso-divider">
               <span>or</span>
@@ -70,16 +78,7 @@ function Login({ onLogin }) {
             <button
               type="button"
               className="sso-button"
-              onClick={() => {
-                const state = crypto.randomUUID()
-                sessionStorage.setItem('sso_state', state)
-                const params = new URLSearchParams({
-                  client_id: SSO_CLIENT_ID,
-                  redirect_uri: `${window.location.origin}/auth/callback`,
-                  state
-                })
-                window.location.href = `${AUTH_SERVICE_URL}/oauth/authorize?${params}`
-              }}
+              onClick={() => { window.location.href = '/api/auth/sso/login' }}
             >
               Sign in with bennettdishman.com
             </button>
