@@ -22,14 +22,14 @@ The server reads these env vars (set them in Railway):
 | `NODE_ENV` | recommended | Set to `production` on Railway (enables the `JWT_SECRET` guard + Express prod mode). |
 | `PORT` | no | Provided by Railway; defaults to 5000. |
 | `FRONTEND_URL` | no | CORS / socket origin; defaults to `http://localhost:5173`. |
-| `AUTH_SERVICE_URL`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | no | **Server-side** SSO (token exchange). All three required to enable central SSO. |
-| `VITE_AUTH_SERVICE_URL`, `VITE_SSO_CLIENT_ID` | no | **Client-side** SSO (build-time). Without these the "Sign in with SSO" button does not render. Set the same values as the server vars. |
+| `AUTH_SERVICE_URL`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | no | Central SSO. All three enable the "Sign in with SSO" button. Set **server-side only** — no build-time (`VITE_`) vars needed. |
+| `APP_BASE_URL` | no | Overrides the origin used to build the OAuth `redirect_uri`. Only needed if the request host differs from the public URL. |
 
-> **SSO note:** central login is a two-sided config. The **client build** needs the two `VITE_`
-> vars (baked in at `npm run build`), and the **server** needs the three non-`VITE_` vars at
-> runtime. Because Railway injects env at both build and run, set all five there. The
-> `redirect_uri` sent to the auth-service is `<this app's origin>/auth/callback`, which must be
-> registered (exactly) on the auth-service for this client.
+> **SSO note:** SSO is a **server-side** confidential OAuth client (same pattern as the CMS).
+> The browser only hits same-origin routes (`/api/auth/sso/login`, `/auth/callback`); the
+> `client_id`/`secret` never reach the client bundle, so there are no build-time vars to bake
+> in. The `redirect_uri` sent to the auth-service is `<this app's origin>/auth/callback`, which
+> must be registered (exactly) on the auth-service for this client.
 
 ## Getting started
 ```bash

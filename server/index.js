@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const cookieParser = require('cookie-parser');
 const path = require('path');
 
 const authRoutes = require('./routes/auth');
@@ -22,6 +23,10 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 5000;
 
+// Trust the Railway proxy so req.protocol reflects the public https scheme (used to build
+// the OAuth redirect_uri) and secure cookies are honored.
+app.set('trust proxy', true);
+
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: false
@@ -32,6 +37,7 @@ app.use(cors({
 }));
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(cookieParser());
 
 // API Routes
 app.use('/api/auth', authRoutes);

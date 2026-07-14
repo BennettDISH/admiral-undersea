@@ -43,4 +43,4 @@ async function exchangeCode(code) {
   return response.json();
 }
 
-module.exports = { SSO_ENABLED, centralRegister, centralLogin, exchangeCode };
+module.exports = { SSO_ENABLED, AUTH_SERVICE_URL, SSO_CLIENT_ID, centralRegister, centralLogin, exchangeCode };

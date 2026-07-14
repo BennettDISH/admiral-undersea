@@ -31,7 +31,8 @@ api.interceptors.response.use(
 export const auth = {
   login: (username, password) => api.post('/auth/login', { username, password }),
   register: (email, username, password) => api.post('/auth/register', { email, username, password }),
-  ssoLogin: (code) => api.post('/auth/sso-callback', { code }),
+  ssoLogin: (code, state) => api.post('/auth/sso-callback', { code, state }),
+  config: () => api.get('/auth/config'),
   me: () => api.get('/auth/me')
 }
 

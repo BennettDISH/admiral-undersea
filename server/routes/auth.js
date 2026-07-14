@@ -1,11 +1,25 @@
 const express = require('express');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const db = require('../config/database');
-const { SSO_ENABLED, centralRegister, centralLogin, exchangeCode } = require('../config/sso');
+const { SSO_ENABLED, AUTH_SERVICE_URL, SSO_CLIENT_ID, centralRegister, centralLogin, exchangeCode } = require('../config/sso');
 const { signToken } = require('../config/jwt');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+
+const STATE_COOKIE = 'au_oauth_state';
+
+// Absolute base URL of this app — prefer an explicit env (exact match to the registered
+// redirect_uri), else the request origin (correct in prod with trust proxy set).
+const baseUrl = (req) => (process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+
+const stateCookieOpts = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  path: '/',
+});
 
 // The central auth-service returns identity fields FLAT (central_user_id, username,
 // email, ...). Older/proxy responses may nest them under `user`. Accept both shapes.
@@ -160,18 +174,44 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// SSO callback
+// Public config so the client can decide whether to show the SSO button without any
+// build-time (VITE) vars — SSO is now configured entirely server-side.
+router.get('/config', (req, res) => {
+  res.json({ ssoEnabled: SSO_ENABLED });
+});
+
+// Begin SSO: remember a random state in an httpOnly cookie and bounce to the auth-service
+// authorize endpoint with the SERVER-held client_id. The client_id never reaches the browser.
+router.get('/sso/login', (req, res) => {
+  if (!SSO_ENABLED) return res.status(503).send('SSO is not configured');
+  const state = crypto.randomBytes(16).toString('hex');
+  res.cookie(STATE_COOKIE, state, { ...stateCookieOpts(), maxAge: 10 * 60 * 1000 });
+  const url = new URL(`${AUTH_SERVICE_URL}/oauth/authorize`);
+  url.searchParams.set('client_id', SSO_CLIENT_ID);
+  url.searchParams.set('redirect_uri', `${baseUrl(req)}/auth/callback`);
+  url.searchParams.set('state', state);
+  res.redirect(url.toString());
+});
+
+// SSO callback: the client posts the code + state it received; we verify the state against
+// our cookie and exchange the code server-side (the client_secret never leaves the server).
 router.post('/sso-callback', async (req, res) => {
   if (!SSO_ENABLED) {
     return res.status(404).json({ error: 'SSO not configured' });
   }
 
-  try {
-    const { code } = req.body;
-    if (!code) {
-      return res.status(400).json({ error: 'Authorization code required' });
-    }
+  const { code, state } = req.body;
+  const expected = req.cookies?.[STATE_COOKIE];
+  res.clearCookie(STATE_COOKIE, stateCookieOpts());
 
+  if (!code) {
+    return res.status(400).json({ error: 'Authorization code required' });
+  }
+  if (!state || !expected || state !== expected) {
+    return res.status(400).json({ error: 'Invalid or missing SSO state' });
+  }
+
+  try {
     const data = await exchangeCode(code);
     const central = normalizeCentral(data);
     const localUser = await findOrCreateLocalUser(central);
