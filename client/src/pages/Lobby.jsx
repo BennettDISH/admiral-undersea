@@ -128,7 +128,16 @@ function Lobby({ user }) {
     })
   }
 
-  const canStart = teamHasCaptain('alpha') && teamHasCaptain('bravo')
+  const teamLabel = (team) => (team === 'alpha' ? (game?.team_alpha_name || 'Alpha') : (game?.team_bravo_name || 'Bravo'))
+  const teamsMissingCaptain = ['alpha', 'bravo'].filter(t => !teamHasCaptain(t))
+  const canStart = teamsMissingCaptain.length === 0
+  // Name the specific team(s) that still need a captain so it's obvious what's missing
+  // (e.g. a solo tester with one account can only occupy one team at a time).
+  const startLabel = canStart
+    ? 'Start Game'
+    : teamsMissingCaptain.length === 2
+      ? 'Both teams need a Captain'
+      : `${teamLabel(teamsMissingCaptain[0])} needs a Captain`
 
   // Get roles assigned to players on a team
   const getTeamRoleAssignments = (team) => {
@@ -315,13 +324,22 @@ function Lobby({ user }) {
       </div>
 
       {isCreator && (
-        <button
-          className="start-game-btn"
-          onClick={handleStartGame}
-          disabled={!canStart}
-        >
-          {canStart ? 'Start Game' : 'Each team needs a Captain...'}
-        </button>
+        <>
+          <button
+            className="start-game-btn"
+            onClick={handleStartGame}
+            disabled={!canStart}
+          >
+            {startLabel}
+          </button>
+          {!canStart && (
+            <p className="start-hint">
+              Each team needs a human Captain. Testing solo? Open a second player in a different
+              login (another account or an incognito window) and join with code <strong>{code}</strong> —
+              two tabs in the same browser share one account.
+            </p>
+          )}
+        </>
       )}
 
       <button className="back-btn" onClick={() => navigate('/')}>

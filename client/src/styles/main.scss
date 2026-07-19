@@ -1451,6 +1451,16 @@ button {
    Full Captain Sonar additions (systems, sectors, radio, feedback)
    =================================================================== */
 
+.start-hint {
+  max-width: 640px;
+  margin: 0.6rem auto 0;
+  text-align: center;
+  font-size: 0.82rem;
+  opacity: 0.75;
+  line-height: 1.4;
+  strong { color: #00d4ff; }
+}
+
 .mode-badge {
   padding: 0.15rem 0.6rem;
   border-radius: 999px;
