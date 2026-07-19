@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "dev:local": "node dev-local.js",
     "test": "node --test"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "nodemon": "^3.0.2"
   }
 }
