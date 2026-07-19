@@ -1446,3 +1446,291 @@ button {
     color: #4caf50;
   }
 }
+
+/* ===================================================================
+   Full Captain Sonar additions (systems, sectors, radio, feedback)
+   =================================================================== */
+
+.mode-badge {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: rgba(0, 212, 255, 0.15);
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  &.live { background: rgba(255, 152, 0, 0.15); border-color: rgba(255, 152, 0, 0.5); }
+}
+
+.surface-banner {
+  background: rgba(255, 193, 7, 0.18);
+  border: 1px solid rgba(255, 193, 7, 0.6);
+  color: #ffe082;
+  text-align: center;
+  padding: 0.6rem;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+
+// ---- MapBoard: sectors + targeting overlays ----
+.map-cell {
+  position: relative;
+
+  .sector-label {
+    position: absolute;
+    top: 1px;
+    left: 2px;
+    font-size: 0.5rem;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .cell-icon { font-size: 0.95rem; line-height: 1; }
+
+  &.sector-edge-r { border-right: 2px solid rgba(0, 212, 255, 0.5); }
+  &.sector-edge-b { border-bottom: 2px solid rgba(0, 212, 255, 0.5); }
+
+  &.mine { background: rgba(233, 30, 99, 0.45); }
+  &.clickable { cursor: pointer; }
+
+  &.legal-target {
+    box-shadow: inset 0 0 0 2px rgba(0, 212, 255, 0.9);
+    cursor: crosshair;
+    animation: targetPulse 1.2s ease-in-out infinite;
+  }
+  &.candidate { background: rgba(76, 175, 80, 0.35); }
+  &.ghost { box-shadow: inset 0 0 0 2px rgba(255, 235, 59, 0.8); }
+  &.ghost-start { background: rgba(255, 235, 59, 0.4); }
+  &.annotated { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7); }
+  &.enemy-sector { background: rgba(244, 67, 54, 0.25); }
+}
+
+.game-map.selecting {
+  cursor: crosshair;
+  &--mine .map-cell.legal-target { box-shadow: inset 0 0 0 2px rgba(233, 30, 99, 0.9); }
+  &--silence .map-cell.legal-target { box-shadow: inset 0 0 0 2px rgba(156, 39, 176, 0.9); }
+  &--drone-sector .map-cell { cursor: pointer; }
+}
+
+.targeting-hint {
+  background: rgba(0, 212, 255, 0.15);
+  border: 1px solid rgba(0, 212, 255, 0.5);
+  color: #b3ecff;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+
+  .cancel-target { width: auto; padding: 0.2rem 0.6rem; font-size: 0.75rem; background: rgba(255,255,255,0.15); }
+}
+
+.cooldown-timer {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: #ff9800;
+}
+.trapped-hint {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: #ff5252;
+  font-weight: 600;
+}
+
+// ---- Captain systems rail ----
+.systems-rail {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+
+  h3 { margin-bottom: 0.5rem; color: #00d4ff; font-size: 1rem; }
+}
+.system-control {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+  padding: 0.25rem;
+  border-radius: 6px;
+
+  .system-label { width: 110px; font-size: 0.9rem; }
+  &.ready { background: rgba(76, 175, 80, 0.12); }
+  &.blocked { opacity: 0.5; }
+  &.surface-control { margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.6rem; }
+}
+.activate-btn {
+  width: auto;
+  padding: 0.25rem 0.75rem;
+  background: #0097a7;
+  font-size: 0.8rem;
+  margin-left: auto;
+
+  &.active { background: #ff9800; box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.5); }
+  &.danger { background: #f44336; }
+}
+
+.captain-reports {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+
+  h4 { font-size: 0.85rem; color: #00d4ff; margin-bottom: 0.3rem; }
+}
+.drone-report, .sonar-report, .mine-list {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+}
+.drone-answer {
+  font-weight: 600;
+  &.yes { color: #ff5252; }
+  &.no { color: #4caf50; }
+}
+.sonar-fact {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem;
+}
+.mine-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+
+  .detonate-btn { width: auto; padding: 0.15rem 0.6rem; font-size: 0.75rem; background: #e91e63; }
+}
+
+// ---- Live pacing widgets ----
+.token-tray, .breakdown-queue {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(255, 152, 0, 0.12);
+  border: 1px solid rgba(255, 152, 0, 0.4);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+.token-pip { width: 14px; height: 14px; border-radius: 50%; background: #ff9800; }
+.queue-dir {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 0 0.4rem;
+  font-size: 0.8rem;
+}
+.system-btn.ready { box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.6); }
+.hull-risk-flag { color: #ff5252; font-size: 0.7rem; }
+
+// ---- Radio deduction ----
+.radio-tools {
+  margin-bottom: 0.75rem;
+
+  .candidate-count { font-size: 0.95rem; margin-bottom: 0.4rem; strong { color: #4caf50; } }
+  .radio-mode-toggle {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+    button { width: auto; padding: 0.25rem 0.6rem; font-size: 0.8rem; background: rgba(255,255,255,0.12); &.active { background: #0097a7; } }
+  }
+  .ghost-status {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    &.valid { background: rgba(76, 175, 80, 0.18); color: #a5d6a7; }
+    &.invalid { background: rgba(244, 67, 54, 0.18); color: #ef9a9a; }
+  }
+}
+.tracked-path {
+  margin-top: 0.75rem;
+  h4 { font-size: 0.85rem; color: #00d4ff; margin-bottom: 0.3rem; }
+  .path-display { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  .path-step { background: rgba(0, 212, 255, 0.2); border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.8rem; }
+  .no-path { opacity: 0.6; font-size: 0.85rem; }
+}
+
+// ---- Sonar answer modal ----
+.sonar-answer-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.sonar-answer-card {
+  background: #16213e;
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 400px;
+
+  h3 { color: #00d4ff; margin-bottom: 0.5rem; }
+  p { font-size: 0.85rem; margin-bottom: 0.75rem; opacity: 0.9; }
+  .sonar-fact-input { display: flex; gap: 0.5rem; margin-bottom: 0.5rem;
+    select, input { flex: 1; padding: 0.4rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: #fff; }
+  }
+  .sonar-hint { font-size: 0.78rem; opacity: 0.7; }
+}
+
+// ---- Event log + toasts ----
+.event-log {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  width: 240px;
+  max-height: 200px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  backdrop-filter: blur(6px);
+  z-index: 150;
+
+  h3 { font-size: 0.75rem; color: #00d4ff; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .log-scroll { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.15rem; }
+  .log-empty { opacity: 0.5; font-size: 0.8rem; }
+  .log-entry { font-size: 0.78rem; padding: 0.1rem 0.3rem; border-radius: 3px; border-left: 2px solid transparent; }
+  .log-entry--move { border-color: #2196f3; }
+  .log-entry--attack { border-color: #f44336; color: #ffcdd2; }
+  .log-entry--surface { border-color: #ffc107; }
+  .log-entry--sonar { border-color: #9c27b0; }
+  .log-entry--drone { border-color: #00bcd4; }
+  .log-entry--silence { border-color: #7e57c2; }
+  .log-entry--info { border-color: #4caf50; }
+}
+
+.toast-host {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: center;
+  z-index: 250;
+}
+.toast {
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  animation: toastIn 0.2s ease-out;
+
+  &--hit { background: #2e7d32; }
+  &--miss { background: #c62828; }
+  &--info { background: #0277bd; }
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}

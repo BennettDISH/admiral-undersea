@@ -1,0 +1,61 @@
+{
+  "board": {
+    "width": 15,
+    "height": 10,
+    "sectorWidth": 5,
+    "sectorHeight": 5,
+    "sectorCols": 3
+  },
+  "map": [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,1,0,0,0,0,0,0,0,0,0,1,0,0],
+    [0,0,1,0,0,0,1,1,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],
+    [0,0,0,1,0,0,0,0,0,0,1,0,0,0,0],
+    [0,0,0,1,1,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,1,1,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  ],
+  "startPositions": {
+    "alpha": { "x": 1, "y": 1 },
+    "bravo": { "x": 14, "y": 9 }
+  },
+  "maxHealth": 4,
+  "systemMax": {
+    "torpedo": 3,
+    "mine": 3,
+    "drone": 4,
+    "sonar": 3,
+    "silence": 6
+  },
+  "torpedoRange": 4,
+  "silenceRange": 4,
+  "mineRange": 1,
+  "defaultPriority": ["torpedo", "mine", "drone", "sonar", "silence"],
+  "engineerSlots": [
+    { "id": "n1", "dir": "N", "system": "torpedo", "circuit": "A" },
+    { "id": "n2", "dir": "N", "system": "mine", "circuit": "B" },
+    { "id": "n3", "dir": "N", "system": "drone", "circuit": "C" },
+    { "id": "n4", "dir": "N", "system": "sonar", "circuit": "D" },
+    { "id": "s1", "dir": "S", "system": "silence", "circuit": "A" },
+    { "id": "s2", "dir": "S", "system": "torpedo", "circuit": "B" },
+    { "id": "s3", "dir": "S", "system": "mine", "circuit": "C" },
+    { "id": "s4", "dir": "S", "system": "drone", "circuit": "D" },
+    { "id": "e1", "dir": "E", "system": "sonar", "circuit": "A" },
+    { "id": "e2", "dir": "E", "system": "silence", "circuit": "B" },
+    { "id": "e3", "dir": "E", "system": "torpedo", "circuit": "C" },
+    { "id": "e4", "dir": "E", "system": "mine", "circuit": "D" },
+    { "id": "w1", "dir": "W", "system": "drone", "circuit": "A" },
+    { "id": "w2", "dir": "W", "system": "sonar", "circuit": "B" },
+    { "id": "w3", "dir": "W", "system": "silence", "circuit": "C" },
+    { "id": "w4", "dir": "W", "system": "mine", "circuit": "D" }
+  ],
+  "circuits": {
+    "A": ["n1", "s1", "e1", "w1"],
+    "B": ["n2", "s2", "e2", "w2"],
+    "C": ["n3", "s3", "e3", "w3"],
+    "D": ["n4", "s4", "e4", "w4"]
+  }
+}

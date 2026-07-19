@@ -8,9 +8,15 @@ React 18 + Vite (client) · Express + socket.io (server) · Postgres · bcryptjs
 
 Monorepo with separate `client/` and `server/` packages.
 
-> **Status: playable prototype.** The full lobby → move → charge → torpedo loop works and
-> results persist, but this is a vertical slice of Captain Sonar — only the torpedo system
-> is implemented; mine/drone/sonar/silence, surfacing, and movement legality are not yet built.
+> **Status: full game.** All five systems (torpedo, mine, drone, sonar, silence) plus
+> surfacing are implemented, with faithful rules: movement legality (no islands / own-trail /
+> off-grid), BFS-ranged torpedoes, sector-based drone & sonar, engineering hull damage, and a
+> real Radio Operator deduction tool (auto-plot + candidate elimination). Both **turn-based**
+> and real-time **Live** modes are supported. Results persist.
+>
+> The rules live in a pure, DB-free engine (`server/game/`) with unit tests (`cd server && npm test`);
+> `server/sockets/game.js` is a thin socket.io adapter over it. Board/system data is single-sourced
+> in `shared/gameConstants.json` (imported by both client and server).
 
 ## Environment
 The server reads these env vars (set them in Railway):
@@ -43,8 +49,12 @@ npm run client               # Vite client (separate terminal)
 Production: `npm run build` (builds client), then `npm start` (serves via `server/index.js`).
 
 ## Layout
+- `shared/gameConstants.json` — board, sectors, systems, engineer circuits (single-sourced client+server).
 - `client/src/pages/` — Home, Login, Register, AuthCallback, CreateGame, JoinGame, Lobby, Game.
-- `server/routes/` — `auth.js`, `games.js`; real-time play over socket.io.
+- `client/src/game/` — `MapBoard`, shared `constants.js`, `radio.js` (deduction), `EventLog`, `ToastHost`.
+- `server/game/` — pure rules engine: `constants.js`, `map.js`, `engine.js` (+ `*.test.js`).
+- `server/sockets/game.js` — thin socket.io adapter over the engine.
+- `server/routes/` — `auth.js`, `games.js`.
 - `database/` — schema.
 
 ## Deploy
