@@ -15,6 +15,10 @@ const {
 const enemyOf = (team) => (team === 'alpha' ? 'bravo' : 'alpha');
 const MAX_SECTOR = BOARD.sectorCols * Math.ceil(BOARD.height / BOARD.sectorHeight);
 
+// Monotonic ids so stale timers (sonar auto-answer, turn watchdog) can detect that the
+// thing they were scheduled for has since been superseded.
+let sonarSeq = 0;
+
 // ---- result builders -------------------------------------------------------
 const ok = (events = []) => ({ ok: true, events });
 const reject = (action, reason, extra = {}) => ({ ok: false, error: { action, reason, ...extra }, events: [] });
@@ -37,6 +41,7 @@ function newSubmarine(team) {
     awaitingConfirmation: false,
     confirmedRoles: [],
     chargedThisMove: false,
+    turnSeq: 0, // bumped per move so a stale watchdog can tell it's a newer turn
     // real-time pacing
     chargeTokens: 0,
     breakdownQueue: [],
@@ -127,6 +132,7 @@ function applyMove(state, team, dir, opts = {}) {
   sub.path.push({ ...sub.position });
   sub.position = legal.target;
   sub.lastMoveDir = dir;
+  sub.turnSeq += 1;
 
   if (state.mode === 'live') {
     sub.chargeTokens += 1;
@@ -312,7 +318,7 @@ function useSonar(state, team) {
   const enemy = state.submarines[enemyTeam];
   if (enemy.pendingSonar) return reject('use-sonar', 'sonar-pending');
   sub.systems.sonar = 0;
-  enemy.pendingSonar = { askingTeam: team };
+  enemy.pendingSonar = { askingTeam: team, id: ++sonarSeq };
   return ok([{ scope: 'team', team: enemyTeam, event: 'sonar-request', payload: { askingTeam: team } }]);
 }
 
@@ -326,17 +332,22 @@ const factIsTrue = (sub, fact) => {
 // The responding (enemy) team answers a pending sonar with two facts: exactly one true, one false,
 // of two different types. `facts` may come from a human responder or from autoSonarFacts().
 function resolveSonar(state, respondingTeam, facts, opts = {}) {
+  if (state.gameOver) return reject('sonar-response', 'game-over');
   const sub = state.submarines[respondingTeam];
   if (!sub.pendingSonar) return reject('sonar-response', 'no-pending');
   if (!Array.isArray(facts) || facts.length !== 2) return reject('sonar-response', 'need-two-facts');
-  if (facts[0].type === facts[1].type) return reject('sonar-response', 'same-type');
+  if (!facts[0] || !facts[1] || facts[0].type === facts[1].type) return reject('sonar-response', 'same-type');
   const trueCount = facts.filter((f) => factIsTrue(sub, f)).length;
   if (trueCount !== 1) return reject('sonar-response', 'need-one-true-one-false');
 
   const askingTeam = sub.pendingSonar.askingTeam;
   sub.pendingSonar = null;
   const out = opts.shuffle === false ? facts : (Math.random() < 0.5 ? facts : [facts[1], facts[0]]);
-  return ok([{ scope: 'team', team: askingTeam, event: 'sonar-result', payload: { facts: out } }]);
+  return ok([
+    { scope: 'team', team: askingTeam, event: 'sonar-result', payload: { facts: out } },
+    // Tell the responder their reply was accepted so the client can close the prompt.
+    { scope: 'team', team: respondingTeam, event: 'sonar-answered', payload: {} },
+  ]);
 }
 
 // Auto-generate a valid pair for a stalled / automated responder: one true, one false, different types.

@@ -146,6 +146,21 @@ test('sonar requires exactly one true + one false, of different types', () => {
   assert.strictEqual(s.submarines.bravo.pendingSonar, null);
 });
 
+test('sonar gets a unique id and resolveSonar guards on game-over', () => {
+  const s = game();
+  place(s, 'alpha', 1, 1, { systems: { ...s.submarines.alpha.systems, sonar: 3 } });
+  place(s, 'bravo', 3, 4);
+  E.useSonar(s, 'alpha');
+  assert.ok(typeof s.submarines.bravo.pendingSonar.id === 'number');
+  // resolveSonar answered event for the responder + result for the asker
+  const r = E.resolveSonar(s, 'bravo', [{ type: 'sector', value: 1 }, { type: 'row', value: 9 }], { shuffle: false });
+  assert.ok(has(r.events, 'sonar-answered'));
+  // once the game is over, a stale response is rejected
+  s.gameOver = true;
+  s.submarines.bravo.pendingSonar = { askingTeam: 'alpha', id: 99 };
+  assert.strictEqual(E.resolveSonar(s, 'bravo', [{ type: 'sector', value: 1 }, { type: 'row', value: 9 }]).error.reason, 'game-over');
+});
+
 test('autoSonarFacts always yields a valid pair', () => {
   const s = game();
   place(s, 'bravo', 7, 3);

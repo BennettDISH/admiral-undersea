@@ -89,6 +89,15 @@ function Game({ user }) {
       setGameState(state)
       if (state.automatedRoles) setAutomatedRoles(state.automatedRoles)
       if (state.systemPriority) setSystemPriority(state.systemPriority)
+      // Hydrate turn/engineer UI state from the authoritative snapshot so a mid-game reload
+      // or reconnect renders correctly instead of showing a fresh (wrong) turn.
+      const sub = state.submarines?.[myTeamRef.current]
+      if (sub) {
+        setAwaitingConfirmation(!!sub.awaitingConfirmation)
+        setConfirmedRoles(sub.confirmedRoles || [])
+        setDamagedSlots((sub.damage || []).map((d) => d.slotId))
+        setHasChargedSystem(!!sub.chargedThisMove)
+      }
     }
 
     socket.on('game-state', applyState)
@@ -150,6 +159,7 @@ function Game({ user }) {
       pushLog('drone', `Drone: enemy ${inSector ? 'IS' : 'is NOT'} in Sector ${sector}`)
     })
     socket.on('sonar-request', ({ askingTeam }) => { setSonarOwed({ askingTeam }); pushLog('sonar', 'Enemy pinged us with sonar — respond') })
+    socket.on('sonar-answered', () => setSonarOwed(null)) // server accepted our reply
     socket.on('sonar-result', ({ facts }) => {
       setSonarReport({ facts })
       pushLog('sonar', `Sonar reply: ${facts.map((f) => factLabel(f)).join(' OR ')} (one is false)`)
@@ -179,8 +189,9 @@ function Game({ user }) {
     return () => {
       ;['game-state', 'game-started', 'move-announced', 'play-move-sound', 'role-confirmed', 'turn-complete',
         'system-charged', 'damage-marked', 'torpedo-hit', 'torpedo-miss', 'mine-exploded', 'mine-placed',
-        'hull-damage', 'drone-result', 'sonar-request', 'sonar-result', 'silence-activated', 'surface-announced',
-        'forced-surface', 'resurfaced', 'action-rejected', 'game-over', 'automated-roles-updated', 'automation-action',
+        'hull-damage', 'drone-result', 'sonar-request', 'sonar-answered', 'sonar-result', 'silence-activated',
+        'surface-announced', 'forced-surface', 'resurfaced', 'action-rejected', 'game-over',
+        'automated-roles-updated', 'automation-action',
       ].forEach((e) => socket.off(e))
     }
   }, [code])
@@ -275,7 +286,9 @@ function Game({ user }) {
   }
   const handleSector = (sector) => { if (targeting === 'drone') { emit('launch-drone', { sector }); setTargeting(null) } }
 
-  const submitSonar = () => { emit('sonar-response', { facts: sonarForm }); setSonarOwed(null) }
+  // Keep the prompt open until the server accepts the reply (it validates one-true-one-false);
+  // if rejected, an action-rejected toast fires and the crew can correct + resend.
+  const submitSonar = () => emit('sonar-response', { facts: sonarForm })
 
   // ---- radio deduction -----------------------------------------------------
   const candidates = useMemo(() => computeCandidates(radioEvents), [radioEvents])
@@ -498,6 +511,7 @@ function Game({ user }) {
                         <div className="priority-list">
                           {systemPriority.map((sysId, idx) => {
                             const sys = SYSTEMS.find((s) => s.id === sysId)
+                            if (!sys) return null
                             const isFull = (mySub?.systems?.[sysId] || 0) >= sys.max
                             return (
                               <div key={sysId} className={`priority-item ${isFull ? 'full' : ''} ${sysId === nextAutoCharge ? 'next' : ''}`}>

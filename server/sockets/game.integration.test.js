@@ -5,8 +5,18 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 // Inject module mocks BEFORE requiring the adapter (same absolute paths it resolves).
+let gameStatus = 'lobby'; // flip to exercise the mid-game team-switch guard
 const dbPath = require.resolve('../config/database');
-require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { query: async () => ({ rows: [] }) } };
+require.cache[dbPath] = {
+  id: dbPath, filename: dbPath, loaded: true,
+  exports: {
+    query: async (text) => {
+      if (/from games/i.test(text) && /status/i.test(text)) return { rows: [{ id: 1, status: gameStatus }] };
+      if (/from games/i.test(text)) return { rows: [{ id: 1 }] };
+      return { rows: [] };
+    },
+  },
+};
 const jwtPath = require.resolve('../config/jwt');
 require.cache[jwtPath] = { id: jwtPath, filename: jwtPath, loaded: true, exports: { verifyToken: () => ({ id: 1, username: 'x' }) } };
 
@@ -72,6 +82,17 @@ test('adapter confirm loop completes the turn once required roles ack', async ()
   assert.ok(!hasRoom(emitted, 'turn-complete'), 'not complete before radio acks');
   await alpha._handlers['aye-captain']({ gameCode: 'G3', role: 'radio-operator' });
   assert.ok(hasRoom(emitted, 'turn-complete', 'game:G3'));
+});
+
+test('select-team is refused once the game has started (blocks enemy-room join / info leak)', async () => {
+  gameStatus = 'playing';
+  const { connect } = harness();
+  const attacker = connect('alpha');       // already on alpha
+  await attacker._handlers['select-team']({ gameCode: 'G8', team: 'bravo' });
+  const rej = attacker._emitted.find((e) => e.ev === 'action-rejected');
+  assert.ok(rej && rej.payload.reason === 'game-started', 'expected select-team rejection mid-game');
+  assert.strictEqual(attacker.team, 'alpha', 'attacker must not switch onto the enemy team');
+  gameStatus = 'lobby';
 });
 
 test('adapter marks damage using the server-tracked move direction', async () => {
