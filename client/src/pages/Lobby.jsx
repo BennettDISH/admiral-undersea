@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import socket, { connectSocket } from '../services/socket'
+import RoleHelp from '../game/RoleHelp'
 
 const ROLES = [
   { id: 'captain', name: 'Captain', required: true, description: 'Plots course and commands the crew' },
@@ -218,7 +219,7 @@ function Lobby({ user }) {
                   return (
                     <div key={role.id} className={`role-row ${isSelected ? 'selected' : ''} ${isAutomated ? 'automated' : ''}`}>
                       <div className="role-info">
-                        <span className="role-name">{role.name}</span>
+                        <span className="role-name">{role.name} <RoleHelp role={role.id} /></span>
                         {role.required && <span className="required-badge">Required</span>}
                         {assignedTo.length > 0 && (
                           <span className="assigned-to">({assignedTo.join(', ')})</span>
@@ -287,7 +288,7 @@ function Lobby({ user }) {
                   return (
                     <div key={role.id} className={`role-row ${isSelected ? 'selected' : ''} ${isAutomated ? 'automated' : ''}`}>
                       <div className="role-info">
-                        <span className="role-name">{role.name}</span>
+                        <span className="role-name">{role.name} <RoleHelp role={role.id} /></span>
                         {role.required && <span className="required-badge">Required</span>}
                         {assignedTo.length > 0 && (
                           <span className="assigned-to">({assignedTo.join(', ')})</span>

@@ -5,6 +5,8 @@ import socket, { connectSocket } from '../services/socket'
 import MapBoard from '../game/MapBoard'
 import EventLog from '../game/EventLog'
 import ToastHost from '../game/ToastHost'
+import RoleHelp from '../game/RoleHelp'
+import { DIR_ARROW, DIR_NAME, CIRCUIT_NAME } from '../game/roleInfo'
 import {
   SIMPLE_MAP, SYSTEMS, ENGINEER_SLOTS, CIRCUITS, MAX_HEALTH, NUM_SECTORS,
   TORPEDO_RANGE, SILENCE_RANGE, getSlotsForDirection, sectorOf, isWater, stepCell, reachableWithin,
@@ -406,7 +408,7 @@ function Game({ user }) {
         {/* ---------------- CAPTAIN ---------------- */}
         {roleActive('captain') && (
           <div className="captain-panel">
-            <h2>Captain's Controls</h2>
+            <h2>Captain's Controls <RoleHelp role="captain" /></h2>
             {targeting && (
               <div className="targeting-hint">
                 {targeting === 'torpedo' && '🎯 Select a target cell (within range).'}
@@ -552,7 +554,8 @@ function Game({ user }) {
         {/* ---------------- FIRST MATE ---------------- */}
         {roleActive('first-mate') && (
           <div className="first-mate-panel">
-            <h2>First Mate's Station</h2>
+            <h2>First Mate's Station <RoleHelp role="first-mate" /></h2>
+            <p className="station-mission">Charge the systems your Captain wants to use — a system is ready to fire only when its bar is full.</p>
             {isLive ? (
               <div className="token-tray">
                 <span>Charge tokens:</span>
@@ -588,74 +591,97 @@ function Game({ user }) {
         )}
 
         {/* ---------------- ENGINEER ---------------- */}
-        {roleActive('engineer') && (
+        {roleActive('engineer') && (() => {
+          const activeDir = isLive ? mySub?.breakdownQueue?.[0] : (awaitingConfirmation ? lastMove?.direction : null)
+          const pending = isLive ? (mySub?.breakdownQueue?.length || 0) : (awaitingConfirmation && !hasMarkedDamage ? 1 : 0)
+          return (
           <div className="engineer-panel">
-            <h2>Engineer's Station</h2>
-            {isLive ? (
-              <div className="breakdown-queue"><span>Breakdowns to mark:</span> <strong>{mySub?.breakdownQueue?.length || 0}</strong>
-                {(mySub?.breakdownQueue || []).map((d, i) => <span key={i} className="queue-dir">{d}</span>)}
-              </div>
-            ) : !awaitingConfirmation ? (
-              <div className="waiting-captain"><p>Waiting for Captain to move…</p></div>
-            ) : (
-              <div className="move-alert">
-                <p>Captain moved: <strong>{lastMove?.direction}</strong></p>
-                {!hasMarkedDamage ? <p className="action-required">Mark a breakdown in the {lastMove?.direction} section!</p> : <p className="action-done">✓ Breakdown marked</p>}
-              </div>
-            )}
-            <div className="circuit-board">
+            <h2>Engineer's Station <RoleHelp role="engineer" /></h2>
+            <p className="station-mission">Every move the Captain makes breaks a reactor node in that direction — you choose which system takes the hit. Complete a colour to repair a whole circuit.</p>
+
+            <div className={`reactor-guidance ${activeDir ? 'go' : 'idle'}`}>
+              {activeDir
+                ? <>Captain moved <strong>{DIR_ARROW[activeDir]} {DIR_NAME[activeDir]}</strong> — take one <strong>{DIR_NAME[activeDir]}</strong> node offline.{isLive && pending > 1 ? ` (${pending} queued)` : ''}</>
+                : (isLive ? 'Reactor stable — waiting for the next move…' : 'Waiting for the Captain to move…')}
+            </div>
+
+            <div className="reactor">
               {DIRS.map((dir) => {
-                const activeDir = isLive ? mySub?.breakdownQueue?.[0] : lastMove?.direction
-                const isActive = activeDir === dir && (isLive ? (mySub?.breakdownQueue?.length || 0) > 0 : awaitingConfirmation)
+                const isActive = activeDir === dir
+                const st = engineerStatus[dir]
+                const filled = st.total - st.available
+                const nearFull = st.available <= 1
                 return (
-                  <div key={dir} className={`circuit-section ${dir.toLowerCase()} ${isActive ? 'active' : ''}`}>
-                    <h4>{dir} {engineerStatus[dir].available <= 1 && <span className="hull-risk-flag">⚠️ hull!</span>}</h4>
-                    <div className="damage-slots">
+                  <div key={dir} className={`reactor-group ${isActive ? 'active' : ''} ${nearFull ? 'danger' : ''}`}>
+                    <div className="reactor-group-head">
+                      <span className="dir-arrow">{DIR_ARROW[dir]} {DIR_NAME[dir]}</span>
+                      <span className="dir-fill">{filled}/{st.total}{nearFull ? ' ⚠️' : ''}</span>
+                    </div>
+                    <div className="reactor-nodes">
                       {getSlotsForDirection(dir).map((slot) => {
                         const isDamaged = damagedSlots.includes(slot.id)
+                        const sys = SYSTEMS.find((s) => s.id === slot.system)
                         return (
-                          <button key={slot.id} className={`damage-slot ${isDamaged ? 'damaged' : ''} ${slot.system} circuit-${slot.circuit}`}
-                            onClick={() => handleMarkDamage(slot.id)} disabled={(isLive ? false : hasMarkedDamage) || isDamaged || !isActive}
-                            title={`${slot.system} (Circuit ${slot.circuit})`}>
-                            <span className="slot-circuit">{slot.circuit}</span>{isDamaged ? '✗' : '○'}
+                          <button key={slot.id}
+                            className={`reactor-node circuit-${slot.circuit} ${isDamaged ? 'offline' : ''}`}
+                            onClick={() => handleMarkDamage(slot.id)}
+                            disabled={(isLive ? false : hasMarkedDamage) || isDamaged || !isActive}
+                            title={`${sys?.name} — ${CIRCUIT_NAME[slot.circuit]} circuit`}>
+                            <span className="node-icon">{sys?.icon}</span>
+                            <span className="node-name">{sys?.name}</span>
+                            <span className="node-state">{isDamaged ? 'OFFLINE' : (isActive ? 'break?' : '')}</span>
                           </button>
                         )
                       })}
                     </div>
+                    {nearFull && st.available > 0 && (
+                      <div className="reactor-warn">One more {DIR_NAME[dir]} move with nothing left to break → reactor overload (1 hull).</div>
+                    )}
                   </div>
                 )
               })}
             </div>
-            <div className="circuit-legend">
-              <p className="circuit-hint">Complete all 4 slots in a circuit (A–D) to auto-repair. Filling a whole direction costs 1 hull!</p>
+
+            <div className="circuit-progress">
+              <span className="cp-label">Repair circuits:</span>
+              {Object.keys(CIRCUITS).map((c) => {
+                const done = CIRCUITS[c].filter((id) => damagedSlots.includes(id)).length
+                return <span key={c} className={`cp-chip circuit-${c} ${done === 4 ? 'ready' : ''}`}>{CIRCUIT_NAME[c]} {done}/4</span>
+              })}
+              <span className="cp-hint">Break all 4 of a colour and that circuit repairs itself.</span>
             </div>
-            <div className="blocked-systems">
-              <h4>System Status</h4>
-              <div className="system-status-grid">
-                {SYSTEMS.map((sys) => <span key={sys.id} className={`system-status ${isSystemBlocked(sys.id) ? 'blocked' : 'ok'}`}>{sys.icon} {isSystemBlocked(sys.id) ? '✗' : '✓'}</span>)}
-              </div>
+
+            <div className="reactor-systems">
+              {SYSTEMS.map((sys) => (
+                <span key={sys.id} className={`sys-chip ${isSystemBlocked(sys.id) ? 'offline' : 'online'}`}>
+                  {sys.icon} {sys.name} {isSystemBlocked(sys.id) ? '✗ offline' : '✓'}
+                </span>
+              ))}
             </div>
+
             {roleCanConfirm('engineer') && <button className="aye-btn" onClick={() => handleAye('engineer')}>⚓ Aye Captain!</button>}
           </div>
-        )}
+          )
+        })()}
 
         {/* ---------------- RADIO OPERATOR ---------------- */}
-        {roleActive('radio-operator') && (
+        {roleActive('radio-operator') && (() => {
+          const n = candidates.size
+          const only = n === 1 ? candidates.values().next().value.split(',').map(Number) : null
+          const heardMoves = radioEvents.filter((e) => e.type === 'move').length
+          return (
           <div className="radio-operator-panel">
-            <h2>Radio Operator's Station</h2>
-            <div className="radio-tools">
-              <div className="candidate-count">Possible enemy positions: <strong>{candidates.size}</strong></div>
-              <div className="radio-mode-toggle">
-                <button className={radioPlacing === 'ghost' ? 'active' : ''} onClick={() => setRadioPlacing('ghost')}>Place guess</button>
-                <button className={radioPlacing === 'annotate' ? 'active' : ''} onClick={() => setRadioPlacing('annotate')}>Annotate</button>
-                <button onClick={() => { setGhostStart(null); setAnnotations([]) }}>Clear</button>
-              </div>
-              {ghost && (
-                <div className={`ghost-status ${ghost.valid ? 'valid' : 'invalid'}`}>
-                  {ghost.valid ? (ghost.uncertain ? 'Guess valid so far (enemy went silent — path uncertain)' : `Guess valid — enemy would be at (${ghost.path.at(-1)?.x}, ${ghost.path.at(-1)?.y})`) : 'Guess impossible — path hits land, edge, or crosses itself'}
-                </div>
-              )}
+            <h2>Radio Operator's Station <RoleHelp role="radio-operator" /></h2>
+            <p className="station-mission">🎯 Find the enemy sub. You hear every move they make — the green cells are where they could be. Narrow it down, then call the shot for your Captain.</p>
+
+            <div className={`enemy-fix ${n <= 3 ? 'pinned' : ''}`}>
+              {heardMoves === 0 && !enemySurfacedSector
+                ? <>Listening… the enemy hasn’t moved yet. The whole ocean (<strong>{n}</strong> cells) is in play.</>
+                : only
+                  ? <>🎯 Enemy pinned at <strong>({only[0]}, {only[1]})</strong> — call it out for your Captain to fire!</>
+                  : <>Enemy could be in <strong>{n}</strong> cell{n === 1 ? '' : 's'}{n <= 3 ? ' — almost there!' : ''}{enemySurfacedSector ? ` · surfaced in Sector ${enemySurfacedSector}` : ''}.</>}
             </div>
+
             <MapBoard
               small
               overlay="radio"
@@ -666,15 +692,41 @@ function Game({ user }) {
               annotations={annotationSet}
               enemySurfacedSector={enemySurfacedSector}
             />
-            <div className="tracked-path">
-              <h4>Heard so far</h4>
+            <div className="radio-legend">
+              <span className="lg lg-candidate">🟩 possible enemy location</span>
+              {ghostStart && <span className="lg lg-ghost">🟨 your traced hunch</span>}
+              {enemySurfacedSector && <span className="lg lg-sector">🟥 surfaced sector</span>}
+            </div>
+
+            <div className="radio-evidence">
+              <h4>What you’ve heard</h4>
               <div className="path-display">
-                {radioEvents.length === 0 ? <span className="no-path">Nothing yet…</span> :
-                  radioEvents.map((e, i) => <span key={i} className="path-step">{e.type === 'move' ? e.dir : e.type === 'silence' ? '🤫' : `⤒${e.sector}`}</span>)}
+                {radioEvents.length === 0 ? <span className="no-path">Nothing yet — listening…</span> :
+                  radioEvents.map((e, i) => (
+                    <span key={i} className={`path-step ${e.type}`} title={e.type === 'silence' ? 'went silent' : e.type === 'surface' ? `surfaced in sector ${e.sector}` : `moved ${DIR_NAME[e.dir]}`}>
+                      {e.type === 'move' ? `${DIR_ARROW[e.dir]}` : e.type === 'silence' ? '🤫' : `⤒${e.sector}`}
+                    </span>
+                  ))}
               </div>
             </div>
+
+            <details className="radio-hunch">
+              <summary>Test a hunch (optional)</summary>
+              <div className="radio-mode-toggle">
+                <button className={radioPlacing === 'ghost' ? 'active' : ''} onClick={() => setRadioPlacing('ghost')}>Guess start</button>
+                <button className={radioPlacing === 'annotate' ? 'active' : ''} onClick={() => setRadioPlacing('annotate')}>Mark cells</button>
+                <button onClick={() => { setGhostStart(null); setAnnotations([]) }}>Clear</button>
+              </div>
+              <p className="hunch-hint">Click a cell on the map to guess where the enemy <em>started</em>; it traces their path from there. Impossible guesses (into land, off-grid, or crossing themselves) are flagged.</p>
+              {ghost && (
+                <div className={`ghost-status ${ghost.valid ? 'valid' : 'invalid'}`}>
+                  {ghost.valid ? (ghost.uncertain ? 'Valid so far (enemy went silent — path uncertain from here)' : `Valid — from there the enemy would now be at (${ghost.path.at(-1)?.x}, ${ghost.path.at(-1)?.y})`) : 'Impossible — that path hits land, the edge, or crosses itself'}
+                </div>
+              )}
+            </details>
           </div>
-        )}
+          )
+        })()}
       </div>
 
       {/* Sonar answer prompt (any crew member can answer for the enemy ping) */}

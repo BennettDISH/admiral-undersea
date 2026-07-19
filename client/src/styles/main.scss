@@ -1744,3 +1744,176 @@ button {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ===================================================================
+   Role help (?) + Engineer/Radio redesign
+   =================================================================== */
+
+$circuit-a: #2196f3;
+$circuit-b: #ffb300;
+$circuit-c: #4caf50;
+$circuit-d: #ab47bc;
+
+.station-mission {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  margin: -0.25rem 0 0.75rem;
+  line-height: 1.4;
+  max-width: 640px;
+}
+
+// ---- ? help popover ----
+.role-help { position: relative; display: inline-block; }
+.role-help-btn {
+  width: 1.35rem; height: 1.35rem;
+  padding: 0; line-height: 1;
+  border-radius: 50%;
+  background: rgba(0, 212, 255, 0.18);
+  border: 1px solid rgba(0, 212, 255, 0.5);
+  color: #00d4ff;
+  font-size: 0.8rem; font-weight: 700;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.role-help-scrim { position: fixed; inset: 0; z-index: 180; }
+.role-help-pop {
+  position: absolute;
+  top: 130%; left: 0;
+  z-index: 181;
+  width: 300px;
+  background: #16213e;
+  border: 1px solid rgba(0, 212, 255, 0.5);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  text-align: left;
+  font-weight: 400;
+
+  .role-help-head { font-size: 1rem; font-weight: 700; color: #00d4ff; margin-bottom: 0.3rem; }
+  .role-help-mission { font-size: 0.85rem; margin-bottom: 0.5rem; opacity: 0.95; }
+  .role-help-how { margin: 0 0 0.5rem 1rem; padding: 0; font-size: 0.82rem; line-height: 1.45;
+    li { margin-bottom: 0.3rem; } }
+  .role-help-tip { font-size: 0.8rem; opacity: 0.85; font-style: italic; margin-bottom: 0.6rem; }
+  .role-help-close { width: 100%; padding: 0.35rem; font-size: 0.8rem; background: #0097a7; }
+}
+
+// ---- Engineer reactor ----
+.reactor-guidance {
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  &.go { background: rgba(255, 152, 0, 0.16); border: 1px solid rgba(255, 152, 0, 0.5); color: #ffe0b2; }
+  &.idle { background: rgba(255, 255, 255, 0.06); opacity: 0.8; }
+}
+
+.reactor {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.reactor-group {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.5rem;
+  &.active { border-color: rgba(255, 152, 0, 0.8); box-shadow: 0 0 0 1px rgba(255, 152, 0, 0.5); }
+  &.danger .dir-fill { color: #ff5252; font-weight: 700; }
+}
+.reactor-group-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.85rem; margin-bottom: 0.4rem;
+  .dir-arrow { font-weight: 600; }
+  .dir-fill { opacity: 0.8; }
+}
+.reactor-nodes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.35rem; }
+.reactor-node {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 0.4rem 0.2rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  cursor: pointer;
+  font-size: 0.65rem;
+
+  .node-icon { font-size: 1.1rem; }
+  .node-name { opacity: 0.9; }
+  .node-state { font-size: 0.55rem; opacity: 0.7; min-height: 0.7rem; }
+
+  &.circuit-A { border-color: $circuit-a; }
+  &.circuit-B { border-color: $circuit-b; }
+  &.circuit-C { border-color: $circuit-c; }
+  &.circuit-D { border-color: $circuit-d; }
+
+  &:disabled { cursor: default; }
+  &:not(:disabled):hover { background: rgba(255, 152, 0, 0.2); }
+  &.offline { opacity: 0.35; filter: grayscale(1); .node-state { color: #ff5252; opacity: 1; } }
+}
+.reactor-warn { margin-top: 0.4rem; font-size: 0.7rem; color: #ff8a80; }
+
+.circuit-progress {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.5rem 0.6rem; border-radius: 8px; margin-bottom: 0.6rem;
+  font-size: 0.75rem;
+  .cp-label { opacity: 0.8; }
+  .cp-chip {
+    padding: 0.1rem 0.45rem; border-radius: 999px; border: 2px solid transparent; font-weight: 600;
+    &.circuit-A { border-color: $circuit-a; color: lighten($circuit-a, 15%); }
+    &.circuit-B { border-color: $circuit-b; color: lighten($circuit-b, 5%); }
+    &.circuit-C { border-color: $circuit-c; color: lighten($circuit-c, 12%); }
+    &.circuit-D { border-color: $circuit-d; color: lighten($circuit-d, 15%); }
+    &.ready { animation: targetPulse 1s ease-in-out infinite; }
+  }
+  .cp-hint { opacity: 0.6; flex-basis: 100%; }
+}
+
+.reactor-systems {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem;
+  .sys-chip {
+    font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 6px;
+    &.online { background: rgba(76, 175, 80, 0.18); color: #a5d6a7; }
+    &.offline { background: rgba(244, 67, 54, 0.2); color: #ef9a9a; }
+  }
+}
+
+// ---- Radio operator ----
+.enemy-fix {
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  margin-bottom: 0.6rem;
+  font-size: 0.95rem;
+  background: rgba(0, 212, 255, 0.12);
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  strong { color: #00d4ff; }
+  &.pinned { background: rgba(76, 175, 80, 0.2); border-color: rgba(76, 175, 80, 0.7); animation: targetPulse 1.2s ease-in-out infinite;
+    strong { color: #a5d6a7; } }
+}
+.radio-legend {
+  display: flex; flex-wrap: wrap; gap: 0.8rem; margin: 0.5rem 0;
+  font-size: 0.75rem; opacity: 0.85;
+}
+.radio-evidence {
+  margin-top: 0.6rem;
+  h4 { font-size: 0.85rem; color: #00d4ff; margin-bottom: 0.3rem; }
+  .path-display { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  .path-step {
+    background: rgba(0, 212, 255, 0.18); border-radius: 5px; padding: 0.15rem 0.4rem; font-size: 0.85rem;
+    &.silence { background: rgba(126, 87, 194, 0.3); }
+    &.surface { background: rgba(255, 193, 7, 0.25); }
+  }
+  .no-path { opacity: 0.6; font-size: 0.85rem; }
+}
+.radio-hunch {
+  margin-top: 0.7rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 0.5rem;
+  summary { cursor: pointer; font-size: 0.85rem; opacity: 0.85; }
+  .radio-mode-toggle { display: flex; gap: 0.4rem; margin: 0.5rem 0;
+    button { width: auto; padding: 0.25rem 0.6rem; font-size: 0.78rem; background: rgba(255,255,255,0.12); &.active { background: #0097a7; } } }
+  .hunch-hint { font-size: 0.78rem; opacity: 0.7; margin-bottom: 0.4rem; }
+  .ghost-status { font-size: 0.82rem; padding: 0.4rem 0.6rem; border-radius: 6px;
+    &.valid { background: rgba(76, 175, 80, 0.18); color: #a5d6a7; }
+    &.invalid { background: rgba(244, 67, 54, 0.18); color: #ef9a9a; } }
+}
