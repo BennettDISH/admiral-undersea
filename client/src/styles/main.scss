@@ -2059,18 +2059,23 @@ h2, h3 { text-transform: uppercase; }
     radial-gradient(circle at 50% 50%, rgba(55, 240, 160, 0.07), transparent 70%),
     #03110d !important;
 }
-// rotating sonar sweep
+// Rotating sonar sweep. The beam emanates from the map centre on a square big enough that
+// its inscribed circle always contains the corners (>= the map diagonal), so the wedge
+// reaches every edge at every rotation — no corner gap on the non-square board.
 .game-map::after, .map-board::after {
   content: '';
   position: absolute;
-  top: -25%; left: -25%; width: 150%; height: 150%;
+  left: 50%; top: 50%;
+  width: 1200px; height: 1200px;
   pointer-events: none; z-index: 4;
-  background: conic-gradient(from 0deg, rgba(55, 240, 160, 0.22), rgba(55, 240, 160, 0.02) 45deg, transparent 70deg 360deg);
-  transform-origin: 50% 50%;
+  background: conic-gradient(from 0deg at 50% 50%, rgba(55, 240, 160, 0.22), rgba(55, 240, 160, 0.02) 45deg, transparent 70deg 360deg);
   animation: sonarSweep 7s linear infinite;
   mix-blend-mode: screen;
 }
-@keyframes sonarSweep { to { transform: rotate(360deg); } }
+@keyframes sonarSweep {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
 
 .map-cell {
   border-radius: 2px;
