@@ -1,3 +1,24 @@
+:root {
+  // Submarine command-console palette
+  --abyss-0: #02070d;      // deepest ocean
+  --abyss-1: #051726;
+  --steel-0: #081824;      // panel base (gunmetal)
+  --steel-1: #0e2637;      // panel raised
+  --steel-edge: #1d425a;   // panel border
+  --rivet: #2f5872;
+  --sonar: #37f0a0;        // phosphor green (active / online / sonar)
+  --sonar-dim: #17976180;
+  --hydro: #37c9ff;        // cyan (water / info)
+  --amber: #ffb02e;        // caution
+  --alert: #ff5252;        // danger / hull breach
+  --ink: #d7e9f2;          // primary text
+  --ink-dim: #86a1b2;      // muted text
+  --font-display: 'Black Ops One', 'Oswald', system-ui, sans-serif;
+  --font-head: 'Oswald', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Share Tech Mono', ui-monospace, 'Courier New', monospace;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -5,10 +26,32 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  font-family: var(--font-body);
+  color: var(--ink);
   min-height: 100vh;
-  color: #fff;
+  background:
+    radial-gradient(1200px 800px at 50% -10%, #0a2c3f 0%, rgba(10, 44, 63, 0) 60%),
+    radial-gradient(900px 700px at 90% 110%, #06303a 0%, rgba(6, 48, 58, 0) 55%),
+    linear-gradient(180deg, var(--abyss-1) 0%, var(--abyss-0) 70%);
+  background-attachment: fixed;
+}
+
+// Atmospheric depth: faint caustic light drifting + a vignette, behind everything.
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(115deg, rgba(55, 240, 160, 0.025) 0 2px, transparent 2px 5px),
+    radial-gradient(120% 120% at 50% 0%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  background-size: 220px 220px, 100% 100%;
+  animation: caustics 24s linear infinite;
+}
+@keyframes caustics {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 220px 440px, 0 0; }
 }
 
 .app {
@@ -69,43 +112,52 @@ body {
   input {
     width: 100%;
     padding: 0.75rem 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
+    border: 1px solid var(--steel-edge);
+    border-radius: 6px;
+    background: rgba(2, 12, 20, 0.6);
+    color: var(--ink);
+    font-family: var(--font-mono);
     font-size: 1rem;
-    transition: border-color 0.3s, background 0.3s;
+    transition: border-color 0.3s, box-shadow 0.3s;
 
     &:focus {
       outline: none;
-      border-color: #00d4ff;
-      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--sonar);
+      box-shadow: 0 0 12px rgba(55, 240, 160, 0.25);
     }
   }
 }
 
 button {
   width: 100%;
-  padding: 0.875rem;
-  border: none;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #00d4ff, #0099cc);
-  color: #fff;
-  font-size: 1rem;
-  font-weight: 600;
+  padding: 0.8rem;
+  border: 1px solid var(--steel-edge);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #14384c, #0c2333);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.12s, box-shadow 0.15s, border-color 0.15s, background 0.15s;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.4);
 
   &:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0, 212, 255, 0.4);
+    transform: translateY(-1px);
+    border-color: var(--sonar);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 14px rgba(55, 240, 160, 0.35);
+    color: #fff;
   }
+  &:active:not(:disabled) { transform: translateY(1px); }
 
   &:disabled {
-    opacity: 0.6;
+    opacity: 0.4;
     cursor: not-allowed;
   }
 }
+
+::selection { background: rgba(55, 240, 160, 0.3); }
 
 .error-message {
   background: rgba(255, 59, 48, 0.2);
@@ -1917,3 +1969,150 @@ $circuit-d: #ab47bc;
     &.valid { background: rgba(76, 175, 80, 0.18); color: #a5d6a7; }
     &.invalid { background: rgba(244, 67, 54, 0.18); color: #ef9a9a; } }
 }
+
+/* ===================================================================
+   SUBMARINE COMMAND THEME — dive the whole UI into a sonar console
+   =================================================================== */
+
+// ---- Typography ----
+h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: 0.05em; }
+h2, h3 { text-transform: uppercase; }
+
+// Brand titles (Home + auth): stencilled, phosphor-lit
+.home-page .header h1,
+.auth-container h1 {
+  font-family: var(--font-display);
+  color: var(--sonar);
+  letter-spacing: 0.03em;
+  text-shadow: 0 0 22px rgba(55, 240, 160, 0.55), 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+// Station / section titles read like labelled instruments
+.game-content h2, .lobby-header h1, .create-game-page > h1, .game-result h1 {
+  color: var(--hydro);
+  text-shadow: 0 0 14px rgba(55, 201, 255, 0.35);
+}
+.game-content h2 {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(55, 201, 255, 0.25);
+  margin-bottom: 0.6rem;
+}
+
+// Readouts in instrument mono
+.charge-bar, .candidate-count, .enemy-fix, .dir-fill, .reactor-guidance,
+.token-tray, .breakdown-queue, .cp-chip, .sys-chip, .health-display,
+.game-code strong, .path-step, .cooldown-timer, .mode-badge, .team-badge,
+.drone-answer, .sonar-fact { font-family: var(--font-mono); }
+
+// ---- Steel console panels ----
+.auth-container, .option-card, .team-card, .captain-panel, .first-mate-panel,
+.engineer-panel, .radio-operator-panel, .systems-rail, .systems-display,
+.game-result, .sonar-answer-card, .event-log, .automation-panel {
+  background:
+    radial-gradient(circle 3px at 11px 11px, var(--rivet) 45%, transparent 47%),
+    radial-gradient(circle 3px at calc(100% - 11px) 11px, var(--rivet) 45%, transparent 47%),
+    radial-gradient(circle 3px at 11px calc(100% - 11px), var(--rivet) 45%, transparent 47%),
+    radial-gradient(circle 3px at calc(100% - 11px) calc(100% - 11px), var(--rivet) 45%, transparent 47%),
+    linear-gradient(180deg, var(--steel-1), var(--steel-0)) !important;
+  border: 1px solid var(--steel-edge) !important;
+  backdrop-filter: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 0 44px rgba(0, 0, 0, 0.35),
+    0 8px 22px rgba(0, 0, 0, 0.45) !important;
+}
+
+// ---- Command bar (in-game header) ----
+.game-header {
+  background: linear-gradient(180deg, #10293a, #081824) !important;
+  border: 1px solid var(--steel-edge);
+  border-radius: 8px;
+  box-shadow: inset 0 -2px 0 rgba(55, 240, 160, 0.25), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.team-badge {
+  border-radius: 5px; letter-spacing: 0.06em; text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  &.alpha { box-shadow: 0 0 12px rgba(55, 201, 255, 0.4); }
+  &.bravo { box-shadow: 0 0 12px rgba(255, 176, 46, 0.4); }
+}
+.health-display {
+  letter-spacing: 0.1em; font-size: 0.9rem;
+  &::before { content: 'HULL '; color: var(--ink-dim); }
+}
+
+// ---- Role tabs as console selectors ----
+.role-tab {
+  font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em;
+  border-radius: 5px 5px 0 0;
+  &.active { border-bottom: 2px solid var(--sonar) !important; box-shadow: 0 0 14px rgba(55, 240, 160, 0.25); }
+}
+
+// ---- SONAR SCREEN map ----
+.game-map, .map-board {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--steel-edge) !important;
+  border-radius: 6px;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.75), 0 0 0 5px #06131b, 0 0 24px rgba(55, 240, 160, 0.08);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(55, 240, 160, 0.07), transparent 70%),
+    #03110d !important;
+}
+// rotating sonar sweep
+.game-map::after, .map-board::after {
+  content: '';
+  position: absolute;
+  top: -25%; left: -25%; width: 150%; height: 150%;
+  pointer-events: none; z-index: 4;
+  background: conic-gradient(from 0deg, rgba(55, 240, 160, 0.22), rgba(55, 240, 160, 0.02) 45deg, transparent 70deg 360deg);
+  transform-origin: 50% 50%;
+  animation: sonarSweep 7s linear infinite;
+  mix-blend-mode: screen;
+}
+@keyframes sonarSweep { to { transform: rotate(360deg); } }
+
+.map-cell {
+  border-radius: 2px;
+  &.water { background: rgba(55, 240, 160, 0.045) !important; box-shadow: inset 0 0 0 1px rgba(55, 240, 160, 0.06); }
+  &.island {
+    background: #0b2a24 !important;
+    box-shadow: inset 0 0 7px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(55, 240, 160, 0.12);
+  }
+  &.path { background: rgba(55, 240, 160, 0.16) !important; }
+  &.submarine {
+    background: radial-gradient(circle, rgba(55, 240, 160, 0.55), transparent 72%) !important;
+    animation: blip 2s ease-in-out infinite;
+  }
+  &.sector-edge-r { border-right-color: rgba(55, 240, 160, 0.3) !important; }
+  &.sector-edge-b { border-bottom-color: rgba(55, 240, 160, 0.3) !important; }
+  .sector-label { color: rgba(55, 240, 160, 0.55); }
+}
+@keyframes blip {
+  0%, 100% { box-shadow: inset 0 0 6px rgba(55, 240, 160, 0.7); }
+  50% { box-shadow: inset 0 0 15px rgba(55, 240, 160, 1); }
+}
+
+// ---- Charge pips + confirm button ----
+.charge-pip { background: rgba(255, 255, 255, 0.1); border-radius: 2px;
+  &.filled { background: var(--sonar); box-shadow: 0 0 8px rgba(55, 240, 160, 0.7); } }
+.aye-btn {
+  background: linear-gradient(180deg, #1c8f60, #0d5c3d) !important;
+  border-color: var(--sonar) !important;
+  color: #eafff5 !important;
+  text-shadow: 0 0 8px rgba(55, 240, 160, 0.5);
+}
+.fire-btn, .activate-btn.danger {
+  background: linear-gradient(180deg, #c0392b, #7d2018) !important;
+  border-color: #ff6a5a !important;
+}
+
+// A quiet blinking "systems live" LED on the command bar
+.game-header::after {
+  content: '● LIVE';
+  font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.12em;
+  color: var(--sonar); opacity: 0.85;
+  align-self: center;
+  animation: ledBlink 2.4s steps(1) infinite;
+}
+@keyframes ledBlink { 0%, 60% { opacity: 0.9; } 61%, 100% { opacity: 0.3; } }
