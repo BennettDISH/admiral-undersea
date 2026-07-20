@@ -2049,23 +2049,58 @@ h2, h3 { text-transform: uppercase; }
 }
 
 // ---- SONAR SCREEN map ----
-.game-map, .map-board {
+// ---- SONAR SCOPE: a round, bolted radar housing around the tactical grid ----
+// The board is a wide rectangle, so the grid is scaled to sit inside the circle with the
+// bolted bezel as a recessed rim (it never overlaps a cell). Range rings fill the arc space.
+.sonar-scope {
   position: relative;
+  width: 560px;
+  aspect-ratio: 1 / 1;
+  margin: 0.4rem auto 0;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
   overflow: hidden;
-  border: 1px solid var(--steel-edge) !important;
-  border-radius: 6px;
-  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.75), 0 0 0 5px #06131b, 0 0 24px rgba(55, 240, 160, 0.08);
+  isolation: isolate;
   background:
-    radial-gradient(circle at 50% 50%, rgba(55, 240, 160, 0.07), transparent 70%),
-    #03110d !important;
+    // rivets on the bezel band (16 heads at 47.5% radius)
+    radial-gradient(circle 3px at 97.5% 50%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 93.9% 68.2%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 83.6% 83.6%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 68.2% 93.9%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 50% 97.5%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 31.8% 93.9%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 16.4% 83.6%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 6.1% 68.2%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 2.5% 50%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 6.1% 31.8%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 16.4% 16.4%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 31.8% 6.1%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 50% 2.5%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 68.2% 6.1%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 83.6% 16.4%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    radial-gradient(circle 3px at 93.9% 31.8%, #8fb2c6 0 42%, #16303d 58%, transparent 64%),
+    // metal bezel band (recessed rim)
+    radial-gradient(circle at 50% 50%, transparent 0 88.5%, #16323f 88.5% 90%, #34607a 93%, #16323f 97%, #274a5e 99%, #08161d 100%),
+    // range rings (shown in the interior, hidden under the bezel at the rim)
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 40px, rgba(55, 240, 160, 0.06) 40px 41px),
+    // crosshair
+    linear-gradient(rgba(55, 240, 160, 0.08), rgba(55, 240, 160, 0.08)) 50% 50% / 100% 1px no-repeat,
+    linear-gradient(rgba(55, 240, 160, 0.08), rgba(55, 240, 160, 0.08)) 50% 50% / 1px 100% no-repeat,
+    // face glow + dark base
+    radial-gradient(circle at 50% 45%, rgba(55, 240, 160, 0.1), transparent 58%),
+    radial-gradient(circle at 50% 50%, #06201a 0%, #03110d 66%, #020a08 100%);
+  box-shadow:
+    inset 0 0 70px rgba(0, 0, 0, 0.9),
+    0 0 0 2px #08161d,
+    0 0 30px rgba(55, 240, 160, 0.12),
+    0 14px 34px rgba(0, 0, 0, 0.55);
 }
-// Rotating sonar sweep. The beam emanates from the map centre on a square big enough that
-// its inscribed circle always contains the corners (>= the map diagonal), so the wedge
-// reaches every edge at every rotation — no corner gap on the non-square board.
-.game-map::after, .map-board::after {
+.sonar-scope.small { width: 380px; margin: 0.2rem auto 0; }
+
+// Rotating sweep, clipped to the circle by the scope's overflow:hidden + border-radius.
+.sonar-scope::after {
   content: '';
-  position: absolute;
-  left: 50%; top: 50%;
+  position: absolute; left: 50%; top: 50%;
   width: 1200px; height: 1200px;
   pointer-events: none; z-index: 4;
   background: conic-gradient(from 0deg at 50% 50%, rgba(55, 240, 160, 0.22), rgba(55, 240, 160, 0.02) 45deg, transparent 70deg 360deg);
@@ -2076,6 +2111,18 @@ h2, h3 { text-transform: uppercase; }
   from { transform: translate(-50%, -50%) rotate(0deg); }
   to { transform: translate(-50%, -50%) rotate(360deg); }
 }
+
+// The tactical grid sits transparent above the scope face, scaled to fit inside the bezel.
+.game-map, .map-board {
+  position: relative;
+  z-index: 3;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  &::after { content: none !important; }
+}
+.sonar-scope .map-board { transform: scale(0.74) !important; transform-origin: center center !important; }
+.sonar-scope.small .map-board { transform: scale(0.44) !important; transform-origin: center center !important; }
 
 .map-cell {
   border-radius: 2px;

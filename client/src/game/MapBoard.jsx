@@ -30,6 +30,7 @@ function MapBoard({
   }
 
   return (
+    <div className={`sonar-scope ${small ? 'small' : ''}`}>
     <div className={`map-board game-map ${small ? 'small' : ''} ${overlay !== 'none' ? `selecting selecting--${overlay}` : ''}`}>
       {map.map((row, y) => (
         <div key={y} className="map-row">
@@ -82,6 +83,7 @@ function MapBoard({
           })}
         </div>
       ))}
+    </div>
     </div>
   )
 }
