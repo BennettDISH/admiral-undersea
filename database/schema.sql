@@ -5,7 +5,7 @@
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
     username VARCHAR(100) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(50) DEFAULT 'player',
@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS game_players (
 -- ADD COLUMN IF NOT EXISTS makes re-running harmless.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS central_user_id INTEGER;
 ALTER TABLE game_players ADD COLUMN IF NOT EXISTS roles VARCHAR(255);
+
+-- Central accounts may have no email (the auth-service made it optional), so the local
+-- mirror must accept NULL. The UNIQUE index stays: Postgres allows multiple NULLs, so any
+-- number of emailless users coexist. Storing '' instead would collide on that index.
+ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);

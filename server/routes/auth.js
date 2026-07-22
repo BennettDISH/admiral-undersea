@@ -50,11 +50,15 @@ async function findOrCreateLocalUser(central) {
     }
   }
 
-  // Check by email — link the central id onto the existing local account
-  const byEmail = await db.query('SELECT id, email, username, role, created_at FROM users WHERE LOWER(email) = LOWER($1)', [central.email]);
-  if (byEmail.rows.length > 0) {
-    await db.query('UPDATE users SET central_user_id = $1, updated_at = NOW() WHERE id = $2', [central.central_user_id, byEmail.rows[0].id]);
-    return byEmail.rows[0];
+  // Check by email — link the central id onto the existing local account. Central accounts
+  // may have no email, so only match when there IS one: a blank/NULL match would link every
+  // emailless user onto the same local row.
+  if (central.email) {
+    const byEmail = await db.query('SELECT id, email, username, role, created_at FROM users WHERE LOWER(email) = LOWER($1)', [central.email]);
+    if (byEmail.rows.length > 0) {
+      await db.query('UPDATE users SET central_user_id = $1, updated_at = NOW() WHERE id = $2', [central.central_user_id, byEmail.rows[0].id]);
+      return byEmail.rows[0];
+    }
   }
 
   // Create new local user shadowing the central identity
@@ -62,7 +66,7 @@ async function findOrCreateLocalUser(central) {
     `INSERT INTO users (email, username, password_hash, role, is_active, central_user_id, created_at)
      VALUES ($1, $2, $3, 'player', true, $4, NOW())
      RETURNING id, email, username, role, created_at`,
-    [central.email, central.username, 'sso-managed', central.central_user_id]
+    [central.email || null, central.username, 'sso-managed', central.central_user_id]
   );
   return created.rows[0];
 }
@@ -136,7 +140,8 @@ router.post('/login', async (req, res) => {
       try {
         const centralResult = await centralLogin({ email: username, password });
         const central = normalizeCentral(centralResult);
-        if (central.email) {
+        // Gate on the central id, not the email — central accounts may have no email.
+        if (central.central_user_id != null) {
           const localUser = await findOrCreateLocalUser(central);
           return res.json({ success: true, token: signToken(localUser), user: localUser });
         }
