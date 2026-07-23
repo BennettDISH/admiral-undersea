@@ -34,6 +34,21 @@ function Login({ onLogin }) {
     }
   }
 
+  const handleGuest = async () => {
+    setError('')
+    setLoading(true)
+    try {
+      const response = await auth.guest()
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token)
+      }
+      onLogin(response.data.user)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not start a guest session')
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="auth-page">
       <div className="auth-container">
@@ -82,6 +97,12 @@ function Login({ onLogin }) {
             >
               Sign in with bennettdishman.com
             </button>
+            <button type="button" onClick={handleGuest} disabled={loading} style={{ width: '100%', marginTop: '0.5rem' }}>
+              {loading ? 'Starting...' : 'Continue as guest'}
+            </button>
+            <p style={{ fontSize: '0.8rem', textAlign: 'center', marginTop: '0.5rem', opacity: 0.7 }}>
+              No account needed. Keep it later by adding a username and password.
+            </p>
           </>
         )}
 

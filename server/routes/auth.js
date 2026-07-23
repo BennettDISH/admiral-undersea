@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const db = require('../config/database');
-const { SSO_ENABLED, AUTH_SERVICE_URL, SSO_CLIENT_ID, centralRegister, centralLogin, exchangeCode } = require('../config/sso');
+const { SSO_ENABLED, AUTH_SERVICE_URL, SSO_CLIENT_ID, centralRegister, centralLogin, centralGuest, exchangeCode } = require('../config/sso');
 const { signToken } = require('../config/jwt');
 const { requireAuth } = require('../middleware/auth');
 
@@ -225,6 +225,19 @@ router.post('/sso-callback', async (req, res) => {
   } catch (error) {
     console.error('SSO callback error:', error);
     res.status(401).json({ error: 'SSO authentication failed' });
+  }
+});
+
+// One-click guest: mint a central guest account and sign in as it — no redirect, no form.
+router.post('/guest', async (req, res) => {
+  if (!SSO_ENABLED) return res.status(503).json({ error: 'Guest sign-in is not available' });
+  try {
+    const central = normalizeCentral(await centralGuest());
+    const localUser = await findOrCreateLocalUser(central);
+    res.json({ success: true, token: signToken(localUser), user: localUser });
+  } catch (error) {
+    console.error('Guest login error:', error);
+    res.status(400).json({ error: error.message || 'Could not start a guest session' });
   }
 });
 
