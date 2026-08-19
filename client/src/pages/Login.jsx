@@ -95,7 +95,7 @@ function Login({ onLogin }) {
               className="sso-button"
               onClick={() => { window.location.href = '/api/auth/sso/login' }}
             >
-              Sign in with bennettdishman.com
+              Sign in with Waypoint
             </button>
             <button type="button" onClick={handleGuest} disabled={loading} style={{ width: '100%', marginTop: '0.5rem' }}>
               {loading ? 'Starting...' : 'Continue as guest'}
