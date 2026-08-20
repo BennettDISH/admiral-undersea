@@ -50,25 +50,55 @@ async function findOrCreateLocalUser(central) {
     }
   }
 
-  // Check by email — link the central id onto the existing local account. Central accounts
-  // may have no email, so only match when there IS one: a blank/NULL match would link every
-  // emailless user onto the same local row.
+  // Adopt a pre-migration local row by email — but ONLY if it is unclaimed.
+  //
+  // `AND central_user_id IS NULL` is the load-bearing part. Without it, a local row already
+  // owned by central account A is silently reassigned to central account B as soon as B's
+  // email matches: B inherits A's games and history, and A's next login mints a fresh empty
+  // row so their account looks wiped. Emails are deliberately reassignable between central
+  // accounts, so this is reachable rather than theoretical. An unclaimed row has no owner to
+  // steal from, which is what makes adoption safe.
+  //
+  // Central accounts may have no email at all — only match when there IS one, or every
+  // emailless user links onto the same local row.
   if (central.email) {
-    const byEmail = await db.query('SELECT id, email, username, role, created_at FROM users WHERE LOWER(email) = LOWER($1)', [central.email]);
+    const byEmail = await db.query(
+      'SELECT id, email, username, role, created_at FROM users WHERE LOWER(email) = LOWER($1) AND central_user_id IS NULL',
+      [central.email]
+    );
     if (byEmail.rows.length > 0) {
       await db.query('UPDATE users SET central_user_id = $1, updated_at = NOW() WHERE id = $2', [central.central_user_id, byEmail.rows[0].id]);
       return byEmail.rows[0];
     }
   }
 
-  // Create new local user shadowing the central identity
+  // Falling through means the email/username may still be held by a row we just refused to
+  // adopt. `users.username` is UNIQUE NOT NULL and `users.email` is UNIQUE, so reusing either
+  // verbatim raises 23505 and 500s the login. Drop the email (NULL never collides) and
+  // suffix the username with the central id, which is itself unique.
+  const username = await freeUsername(central.username, central.central_user_id);
+  const email = central.email ? await freeEmail(central.email) : null;
+
   const created = await db.query(
     `INSERT INTO users (email, username, password_hash, role, is_active, central_user_id, created_at)
      VALUES ($1, $2, $3, 'player', true, $4, NOW())
      RETURNING id, email, username, role, created_at`,
-    [central.email || null, central.username, 'sso-managed', central.central_user_id]
+    [email, username, 'sso-managed', central.central_user_id]
   );
   return created.rows[0];
+}
+
+// Returns `desired` if no other local row holds it, otherwise a central-id-suffixed variant.
+async function freeUsername(desired, centralUserId) {
+  const taken = await db.query('SELECT 1 FROM users WHERE LOWER(username) = LOWER($1)', [desired]);
+  return taken.rows.length === 0 ? desired : `${desired}#${centralUserId}`;
+}
+
+// Returns `desired` only if no other local row holds it; NULL otherwise, since a duplicate
+// would violate users_email_key. The address stays with whoever already had it.
+async function freeEmail(desired) {
+  const taken = await db.query('SELECT 1 FROM users WHERE LOWER(email) = LOWER($1)', [desired]);
+  return taken.rows.length === 0 ? desired : null;
 }
 
 // Register new user
