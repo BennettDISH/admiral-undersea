@@ -6,7 +6,7 @@ import MapBoard from '../game/MapBoard'
 import EventLog from '../game/EventLog'
 import ToastHost from '../game/ToastHost'
 import RoleHelp from '../game/RoleHelp'
-import { DIR_ARROW, DIR_NAME, CIRCUIT_NAME } from '../game/roleInfo'
+import { DIR_ARROW, DIR_NAME, CIRCUIT_NAME, ROLE_HELP } from '../game/roleInfo'
 import {
   SIMPLE_MAP, SYSTEMS, ENGINEER_SLOTS, CIRCUITS, MAX_HEALTH, NUM_SECTORS,
   TORPEDO_RANGE, SILENCE_RANGE, getSlotsForDirection, sectorOf, isWater, stepCell, reachableWithin,
@@ -186,7 +186,12 @@ function Game({ user }) {
     })
     socket.on('game-over', ({ winner }) => setResult({ winner }))
     socket.on('automated-roles-updated', ({ team, automatedRoles: roles }) => { if (team === myTeamRef.current) setAutomatedRoles(roles) })
-    socket.on('automation-action', () => {})
+    socket.on('automation-action', ({ role, action, details }) => {
+      const who = ROLE_HELP[role]?.name || role
+      if (action === 'charged') pushLog('info', `Auto ${who} charged ${SYSTEMS.find((s) => s.id === details.system)?.name || details.system}`)
+      else if (action === 'marked-damage') pushLog('info', `Auto ${who} marked a ${DIR_NAME[details.direction] || details.direction} breakdown`)
+      else pushLog('info', `Auto ${who} ${action.replace(/-/g, ' ')}`)
+    })
 
     return () => {
       ;['game-state', 'game-started', 'move-announced', 'play-move-sound', 'role-confirmed', 'turn-complete',
