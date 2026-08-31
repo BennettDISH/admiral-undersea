@@ -61,4 +61,4 @@ Production: `npm run build` (builds client), then `npm start` (serves via `serve
 Railway.
 
 ## Notes
-Real-time multiplayer (socket.io). See `../PORTFOLIO.md`.
+Real-time multiplayer (socket.io).
