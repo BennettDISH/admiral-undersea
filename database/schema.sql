@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS games (
     status VARCHAR(50) DEFAULT 'lobby',
     same_room BOOLEAN DEFAULT false,
     game_mode VARCHAR(50) DEFAULT 'turn-based',
-    map_id INTEGER,
     team_alpha_name VARCHAR(100) DEFAULT 'Alpha',
     team_bravo_name VARCHAR(100) DEFAULT 'Bravo',
     created_by INTEGER REFERENCES users(id),
@@ -44,10 +43,16 @@ CREATE TABLE IF NOT EXISTS game_players (
     UNIQUE(game_id, user_id)
 );
 
--- Idempotent column back-fills for databases created before these columns existed.
--- ADD COLUMN IF NOT EXISTS makes re-running harmless.
+-- Idempotent column migrations, so an existing database ends up with the same shape as
+-- a fresh one. The IF NOT EXISTS / IF EXISTS guards make re-running harmless.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS central_user_id INTEGER;
 ALTER TABLE game_players ADD COLUMN IF NOT EXISTS roles VARCHAR(255);
+
+-- games.map_id was created for a map picker that was never built: nothing in the server,
+-- the API or the client has ever read or written it, and shared/gameConstants.json holds
+-- the one board the engine plays on. Dropping it here removes it from databases created
+-- while the column existed; DROP COLUMN IF EXISTS is a no-op on fresh ones.
+ALTER TABLE games DROP COLUMN IF EXISTS map_id;
 
 -- Central accounts may have no email (the auth-service made it optional), so the local
 -- mirror must accept NULL. The UNIQUE index stays: Postgres allows multiple NULLs, so any
