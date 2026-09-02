@@ -237,12 +237,12 @@ function setupGameSockets(io) {
       const gameResult = await db.query('SELECT id FROM games WHERE code = $1', [gameCode]);
       if (gameResult.rows.length > 0) {
         const playerResult = await db.query(
-          'SELECT team, role, roles FROM game_players WHERE game_id = $1 AND user_id = $2',
+          'SELECT team, roles FROM game_players WHERE game_id = $1 AND user_id = $2',
           [gameResult.rows[0].id, socket.userId],
         );
         if (playerResult.rows.length > 0) {
           socket.team = playerResult.rows[0].team;
-          const rolesStr = playerResult.rows[0].roles || playerResult.rows[0].role || '';
+          const rolesStr = playerResult.rows[0].roles || '';
           socket.roles = rolesStr.split(',').filter((r) => r && r !== 'unassigned');
           if (socket.team) socket.join(`${room}:${socket.team}`);
         }
@@ -270,7 +270,7 @@ function setupGameSockets(io) {
       if (gameResult.rows[0].status !== 'lobby') return socket.emit('action-rejected', { action: 'select-team', reason: 'game-started' });
       const gameId = gameResult.rows[0].id;
       await db.query(
-        `INSERT INTO game_players (game_id, user_id, team, role, joined_at)
+        `INSERT INTO game_players (game_id, user_id, team, roles, joined_at)
          VALUES ($1, $2, $3, 'unassigned', NOW())
          ON CONFLICT (game_id, user_id) DO UPDATE SET team = $3`,
         [gameId, socket.userId, team],
@@ -289,7 +289,7 @@ function setupGameSockets(io) {
       if (gameResult.rows[0].status !== 'lobby') return; // role assignment is a lobby action
       const rolesStr = roles.join(',');
       await db.query(
-        `UPDATE game_players SET role = $1, roles = $1 WHERE game_id = $2 AND user_id = $3`,
+        `UPDATE game_players SET roles = $1 WHERE game_id = $2 AND user_id = $3`,
         [rolesStr, gameResult.rows[0].id, socket.userId],
       );
       socket.roles = roles;

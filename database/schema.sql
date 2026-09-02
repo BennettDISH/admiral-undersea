@@ -37,7 +37,6 @@ CREATE TABLE IF NOT EXISTS game_players (
     game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
     user_id INTEGER REFERENCES users(id),
     team VARCHAR(50) NOT NULL,
-    role VARCHAR(50) NOT NULL,
     roles VARCHAR(255),
     joined_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(game_id, user_id)
@@ -53,6 +52,20 @@ ALTER TABLE game_players ADD COLUMN IF NOT EXISTS roles VARCHAR(255);
 -- the one board the engine plays on. Dropping it here removes it from databases created
 -- while the column existed; DROP COLUMN IF EXISTS is a no-op on fresh ones.
 ALTER TABLE games DROP COLUMN IF EXISTS map_id;
+
+-- Finish the role -> roles migration: legacy databases have both columns, written with
+-- identical values. Copy any value roles is still missing, then drop the legacy column.
+-- Guarded so it is a no-op on fresh databases and on databases already migrated.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'game_players' AND column_name = 'role'
+    ) THEN
+        UPDATE game_players SET roles = role WHERE roles IS NULL;
+        ALTER TABLE game_players DROP COLUMN role;
+    END IF;
+END $$;
 
 -- Central accounts may have no email (the auth-service made it optional), so the local
 -- mirror must accept NULL. The UNIQUE index stays: Postgres allows multiple NULLs, so any

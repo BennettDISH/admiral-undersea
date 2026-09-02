@@ -210,7 +210,7 @@ function Game({ user }) {
       const me = res.data.players.find((p) => p.user_id === user.id)
       if (me) {
         setMyTeam(me.team)
-        const roles = (me.roles || me.role || '').split(',').filter((r) => r && r !== 'unassigned')
+        const roles = (me.roles || '').split(',').filter((r) => r && r !== 'unassigned')
         setMyRoles(roles)
         if (roles.length && !activeRole) setActiveRole(roles[0])
         socket.team = me.team

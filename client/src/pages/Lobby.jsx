@@ -62,12 +62,8 @@ function Lobby({ user }) {
       const myPlayer = response.data.players.find(p => p.user_id === user.id)
       if (myPlayer) {
         setSelectedTeam(myPlayer.team)
-        // Parse roles - could be comma-separated string or single role
-        if (myPlayer.roles) {
-          setSelectedRoles(myPlayer.roles.split(',').filter(r => r))
-        } else if (myPlayer.role && myPlayer.role !== 'unassigned') {
-          setSelectedRoles([myPlayer.role])
-        }
+        // Parse roles - comma-separated string
+        setSelectedRoles((myPlayer.roles || '').split(',').filter(r => r && r !== 'unassigned'))
       }
     } catch (err) {
       setError('Failed to load game')
@@ -124,7 +120,7 @@ function Lobby({ user }) {
   const teamHasCaptain = (team) => {
     const teamPlayersList = teamPlayers(team)
     return teamPlayersList.some(p => {
-      const roles = p.roles ? p.roles.split(',') : (p.role ? [p.role] : [])
+      const roles = (p.roles || '').split(',')
       return roles.includes('captain')
     })
   }
@@ -148,7 +144,7 @@ function Lobby({ user }) {
     })
 
     teamPlayers(team).forEach(player => {
-      const roles = player.roles ? player.roles.split(',') : (player.role && player.role !== 'unassigned' ? [player.role] : [])
+      const roles = (player.roles || '').split(',')
       roles.forEach(roleId => {
         if (assignments[roleId]) {
           assignments[roleId].push(player.username)
@@ -201,7 +197,7 @@ function Lobby({ user }) {
               <div key={p.user_id} className="player-row">
                 <span className="player-name">{p.username}</span>
                 <span className="player-role">
-                  {p.roles || p.role || 'Selecting...'}
+                  {p.roles || 'Selecting...'}
                 </span>
               </div>
             ))}
@@ -270,7 +266,7 @@ function Lobby({ user }) {
               <div key={p.user_id} className="player-row">
                 <span className="player-name">{p.username}</span>
                 <span className="player-role">
-                  {p.roles || p.role || 'Selecting...'}
+                  {p.roles || 'Selecting...'}
                 </span>
               </div>
             ))}
