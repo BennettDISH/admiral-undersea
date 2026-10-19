@@ -11,7 +11,7 @@ require.cache[dbPath] = {
   id: dbPath, filename: dbPath, loaded: true,
   exports: {
     query: async (text) => {
-      if (/from games/i.test(text) && /status/i.test(text)) return { rows: [{ id: 1, status: gameStatus }] };
+      if (/from games/i.test(text) && /status/i.test(text)) return { rows: [{ id: 1, status: gameStatus, created_by: 1 }] }; // user 1 (alpha) made it
       if (/from games/i.test(text)) return { rows: [{ id: 1 }] };
       return { rows: [] };
     },
@@ -33,7 +33,8 @@ function harness() {
   };
   setupGameSockets(io);
 
-  const connect = (team) => {
+  // `gameCode` is the game this socket joined; its team only counts there.
+  const connect = (team, gameCode) => {
     const handlers = {};
     const socket = {
       id: `s-${team}`, userId: team === 'alpha' ? 1 : 2, username: team,
@@ -45,6 +46,7 @@ function harness() {
     };
     io._conn(socket);
     socket.team = team; // bypass the DB-driven team assignment
+    socket.gameCode = gameCode;
     return socket;
   };
 
@@ -55,7 +57,7 @@ const hasRoom = (emitted, ev, room) => emitted.some((e) => e.ev === ev && (!room
 
 test('adapter rejects an illegal move to the acting socket', async () => {
   const { connect } = harness();
-  const alpha = connect('alpha');
+  const alpha = connect('alpha', 'G1');
   await alpha._handlers['captain-move']({ gameCode: 'G1', direction: 'E' }); // (1,1)->island
   const rej = alpha._emitted.find((e) => e.ev === 'action-rejected');
   assert.ok(rej, 'expected action-rejected');
@@ -64,7 +66,7 @@ test('adapter rejects an illegal move to the acting socket', async () => {
 
 test('adapter routes a legal move to room + game-state to both teams', async () => {
   const { emitted, connect } = harness();
-  const alpha = connect('alpha');
+  const alpha = connect('alpha', 'G2');
   await alpha._handlers['captain-move']({ gameCode: 'G2', direction: 'S' });
   assert.ok(hasRoom(emitted, 'move-announced', 'game:G2'));
   assert.ok(hasRoom(emitted, 'game-state', 'game:G2:alpha'));
@@ -75,7 +77,7 @@ test('adapter routes a legal move to room + game-state to both teams', async () 
 
 test('adapter confirm loop completes the turn once required roles ack', async () => {
   const { emitted, connect } = harness();
-  const alpha = connect('alpha');
+  const alpha = connect('alpha', 'G3');
   await alpha._handlers['captain-move']({ gameCode: 'G3', direction: 'S' });
   await alpha._handlers['aye-captain']({ gameCode: 'G3', role: 'first-mate' });
   await alpha._handlers['aye-captain']({ gameCode: 'G3', role: 'engineer' });
@@ -87,7 +89,7 @@ test('adapter confirm loop completes the turn once required roles ack', async ()
 test('select-team is refused once the game has started (blocks enemy-room join / info leak)', async () => {
   gameStatus = 'playing';
   const { connect } = harness();
-  const attacker = connect('alpha');       // already on alpha
+  const attacker = connect('alpha', 'G8');       // already on alpha
   await attacker._handlers['select-team']({ gameCode: 'G8', team: 'bravo' });
   const rej = attacker._emitted.find((e) => e.ev === 'action-rejected');
   assert.ok(rej && rej.payload.reason === 'game-started', 'expected select-team rejection mid-game');
@@ -97,7 +99,7 @@ test('select-team is refused once the game has started (blocks enemy-room join /
 
 test('adapter marks damage using the server-tracked move direction', async () => {
   const { emitted, connect } = harness();
-  const alpha = connect('alpha');
+  const alpha = connect('alpha', 'G4');
   await alpha._handlers['captain-move']({ gameCode: 'G4', direction: 'S' }); // lastMoveDir = S
   emitted.length = 0;
   // s1 is a valid slot in the S section; client only sends slotId now.
@@ -106,4 +108,52 @@ test('adapter marks damage using the server-tracked move direction', async () =>
   assert.ok(dm, 'expected damage-marked');
   assert.strictEqual(dm.payload.direction, 'S');
   assert.ok(dm.payload.finalDamagedSlots.includes('s1'));
+});
+
+test('an action naming a game the socket did not join is ignored', async () => {
+  const { emitted, connect } = harness();
+  const alpha = connect('alpha', 'G9'); // seated on alpha in G9 only
+  await alpha._handlers['captain-move']({ gameCode: 'OTHER', direction: 'S' });
+  assert.ok(!hasRoom(emitted, 'move-announced', 'game:OTHER'), 'must not steer a sub in another game');
+  assert.strictEqual(alpha._emitted.length, 0);
+  await alpha._handlers['captain-move']({ gameCode: 'G9', direction: 'S' });
+  assert.ok(hasRoom(emitted, 'move-announced', 'game:G9'), 'still plays its own game');
+});
+
+test('joining another game drops the team held in the last one', async () => {
+  const { emitted, connect } = harness();
+  const alpha = connect('alpha', 'G10');
+  await alpha._handlers['join-game']({ gameCode: 'G11' }); // not seated in G11 (no game_players row)
+  assert.strictEqual(alpha.team, null);
+  await alpha._handlers['captain-move']({ gameCode: 'G11', direction: 'S' });
+  await alpha._handlers['captain-move']({ gameCode: 'G10', direction: 'S' });
+  assert.ok(!emitted.some((e) => e.ev === 'move-announced'), 'no team, no moves');
+});
+
+test('only the creator starts a game, and only from the lobby', async () => {
+  const { emitted, connect } = harness();
+  const bravo = connect('bravo', 'G12'); // user 2, not the creator
+  await bravo._handlers['start-game']({ gameCode: 'G12' });
+  assert.strictEqual(bravo._emitted.find((e) => e.ev === 'action-rejected')?.payload.reason, 'not-creator');
+  assert.ok(!hasRoom(emitted, 'game-started'));
+
+  const alpha = connect('alpha', 'G12'); // user 1, the creator
+  await alpha._handlers['start-game']({ gameCode: 'G12' });
+  assert.ok(hasRoom(emitted, 'game-started', 'game:G12:alpha'));
+
+  gameStatus = 'playing';
+  emitted.length = 0;
+  await alpha._handlers['start-game']({ gameCode: 'G12' });
+  assert.strictEqual(alpha._emitted.find((e) => e.ev === 'action-rejected')?.payload.reason, 'game-started');
+  assert.ok(!hasRoom(emitted, 'game-started'), 'a second start must not reset the match');
+  gameStatus = 'lobby';
+});
+
+test('automation can only be set for your own team', async () => {
+  const { emitted, connect } = harness();
+  const alpha = connect('alpha', 'G13');
+  await alpha._handlers['set-automated-roles']({ gameCode: 'G13', team: 'bravo', automatedRoles: ['engineer'] });
+  assert.ok(!hasRoom(emitted, 'automated-roles-updated'));
+  await alpha._handlers['set-automated-roles']({ gameCode: 'G13', team: 'alpha', automatedRoles: ['engineer'] });
+  assert.ok(hasRoom(emitted, 'automated-roles-updated', 'game:G13'));
 });

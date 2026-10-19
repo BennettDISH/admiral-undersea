@@ -225,11 +225,24 @@ function setupGameSockets(io) {
       });
     };
 
-    // Only the captain of a team may issue captain/system actions.
-    const requireTeam = () => socket.team;
+    // Every action names its game, but socket.team was looked up for the game this socket
+    // joined. Only honour the team for that game, or a player seated in one game could steer
+    // a submarine (or set up a team) in any other game by code.
+    const teamIn = (gameCode) => (gameCode && gameCode === socket.gameCode ? socket.team : null);
+    const joined = (gameCode) => Boolean(gameCode) && gameCode === socket.gameCode;
 
     on('join-game', async ({ gameCode }) => {
+      if (typeof gameCode !== 'string' || !gameCode) return;
       const room = roomName(gameCode);
+      // A socket plays one game at a time: drop the team it held in a previous game so it
+      // can't carry over into a game this user isn't seated in.
+      if (socket.gameCode && socket.gameCode !== gameCode) {
+        const oldRoom = roomName(socket.gameCode);
+        if (socket.team) socket.leave(`${oldRoom}:${socket.team}`);
+        socket.leave(oldRoom);
+      }
+      socket.team = null;
+      socket.roles = [];
       socket.join(room);
       socket.gameCode = gameCode;
       console.log(`${socket.username} joined game ${gameCode}`);
@@ -262,6 +275,7 @@ function setupGameSockets(io) {
 
     on('select-team', async ({ gameCode, team }) => {
       const room = roomName(gameCode);
+      if (!joined(gameCode)) return;
       if (team !== 'alpha' && team !== 'bravo') return;
       const gameResult = await db.query('SELECT id, status FROM games WHERE code = $1', [gameCode]);
       if (gameResult.rows.length === 0) return;
@@ -283,6 +297,7 @@ function setupGameSockets(io) {
 
     on('select-roles', async ({ gameCode, roles }) => {
       const room = roomName(gameCode);
+      if (!joined(gameCode)) return;
       if (!Array.isArray(roles)) return;
       const gameResult = await db.query('SELECT id, status FROM games WHERE code = $1', [gameCode]);
       if (gameResult.rows.length === 0) return;
@@ -299,7 +314,7 @@ function setupGameSockets(io) {
     on('set-automated-roles', async ({ gameCode, team, automatedRoles }) => {
       const room = roomName(gameCode);
       if (team !== 'alpha' && team !== 'bravo') return;
-      if (socket.team && team !== socket.team) return; // only configure your own team
+      if (teamIn(gameCode) !== team) return; // only configure your own team, in your own game
       let state = gameStates.get(gameCode);
       if (!state) { state = { automatedRoles: {}, systemPriority: {} }; gameStates.set(gameCode, state); }
       if (!state.automatedRoles) state.automatedRoles = {};
@@ -310,7 +325,7 @@ function setupGameSockets(io) {
 
     on('set-system-priority', async ({ gameCode, team, systemPriority }) => {
       if (team !== 'alpha' && team !== 'bravo') return;
-      if (socket.team && team !== socket.team) return; // only configure your own team
+      if (teamIn(gameCode) !== team) return; // only configure your own team, in your own game
       let state = gameStates.get(gameCode);
       if (!state) { state = { systemPriority: {} }; gameStates.set(gameCode, state); }
       if (!state.systemPriority) state.systemPriority = {};
@@ -319,12 +334,17 @@ function setupGameSockets(io) {
 
     on('start-game', async ({ gameCode }) => {
       const room = roomName(gameCode);
-      let mode = 'turn-based';
-      let sameRoom = false;
+      if (!joined(gameCode)) return;
+      // Only the creator starts a game (the Lobby only shows them the button), and only from
+      // the lobby: a second start-game would wipe the match in progress.
+      const g = await db.query('SELECT status, created_by, game_mode, same_room FROM games WHERE code = $1', [gameCode]);
+      if (g.rows.length === 0) return;
+      if (g.rows[0].created_by !== socket.userId) return socket.emit('action-rejected', { action: 'start-game', reason: 'not-creator' });
+      if (g.rows[0].status !== 'lobby') return socket.emit('action-rejected', { action: 'start-game', reason: 'game-started' });
+      const mode = g.rows[0].game_mode || 'turn-based';
+      const sameRoom = !!g.rows[0].same_room;
       try {
         await db.query(`UPDATE games SET status = 'playing', started_at = NOW() WHERE code = $1`, [gameCode]);
-        const g = await db.query('SELECT game_mode, same_room FROM games WHERE code = $1', [gameCode]);
-        if (g.rows.length) { mode = g.rows[0].game_mode || 'turn-based'; sameRoom = !!g.rows[0].same_room; }
       } catch (err) { console.error('start-game DB error:', err); }
 
       const existing = gameStates.get(gameCode);
@@ -344,7 +364,7 @@ function setupGameSockets(io) {
 
     // ---- captain: move -----------------------------------------------------
     on('captain-move', async ({ gameCode, direction }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       if (!['N', 'S', 'E', 'W'].includes(direction)) return;
       const state = ensurePlayableState(gameCode);
@@ -378,7 +398,7 @@ function setupGameSockets(io) {
 
     // ---- crew: confirm / charge / mark ------------------------------------
     on('aye-captain', async ({ gameCode, role }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -386,7 +406,7 @@ function setupGameSockets(io) {
     });
 
     on('charge-system', async ({ gameCode, system }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -394,7 +414,7 @@ function setupGameSockets(io) {
     });
 
     on('mark-damage', async ({ gameCode, slotId }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       const sub = state?.submarines?.[team];
@@ -407,7 +427,7 @@ function setupGameSockets(io) {
 
     // ---- captain: systems --------------------------------------------------
     on('fire-torpedo', async ({ gameCode, target }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team || !target || typeof target.x !== 'number' || typeof target.y !== 'number') return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -415,7 +435,7 @@ function setupGameSockets(io) {
     });
 
     on('place-mine', async ({ gameCode, target }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team || !target || typeof target.x !== 'number' || typeof target.y !== 'number') return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -423,7 +443,7 @@ function setupGameSockets(io) {
     });
 
     on('detonate-mine', async ({ gameCode, target }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team || !target || typeof target.x !== 'number' || typeof target.y !== 'number') return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -431,7 +451,7 @@ function setupGameSockets(io) {
     });
 
     on('launch-drone', async ({ gameCode, sector }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -439,7 +459,7 @@ function setupGameSockets(io) {
     });
 
     on('use-sonar', async ({ gameCode }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -450,7 +470,7 @@ function setupGameSockets(io) {
     });
 
     on('sonar-response', async ({ gameCode, facts }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -458,7 +478,7 @@ function setupGameSockets(io) {
     });
 
     on('use-silence', async ({ gameCode, direction, distance }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -466,7 +486,7 @@ function setupGameSockets(io) {
     });
 
     on('surface', async ({ gameCode }) => {
-      const team = requireTeam();
+      const team = teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
