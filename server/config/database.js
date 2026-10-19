@@ -41,5 +41,17 @@ if (process.env.USE_PGLITE) {
         password: process.env.DB_PASSWORD || 'postgres',
         port: process.env.DB_PORT || 5432,
       });
+  // An idle client can error (database restart, dropped connection). Without a listener
+  // that 'error' event is unhandled and takes the whole server down; the pool drops the
+  // broken client and makes a new one on the next query.
+  pool.on('error', (err) => {
+    console.error('Postgres idle client error:', err.message);
+  });
+  // A client checked out with pool.connect() loses the pool's listener while it is out, so
+  // the same drop between two queries would still crash. Each client gets its own listener
+  // for life; its next query fails and the caller's error handling answers.
+  pool.on('connect', (client) => {
+    client.on('error', (err) => console.error('Postgres client error:', err.message));
+  });
   module.exports = pool;
 }
