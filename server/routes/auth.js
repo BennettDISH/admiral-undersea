@@ -66,8 +66,14 @@ async function findOrCreateLocalUser(central) {
       'SELECT id, email, username, role, created_at FROM users WHERE LOWER(email) = LOWER($1) AND central_user_id IS NULL',
       [central.email]
     );
+    //
+    // Adoption also retires the row's local password. Whoever set it never proved they own
+    // this email, so leaving it would let them keep signing in to the central owner's row.
     if (byEmail.rows.length > 0) {
-      await db.query('UPDATE users SET central_user_id = $1, updated_at = NOW() WHERE id = $2', [central.central_user_id, byEmail.rows[0].id]);
+      await db.query(
+        `UPDATE users SET central_user_id = $1, password_hash = 'sso-managed', updated_at = NOW() WHERE id = $2`,
+        [central.central_user_id, byEmail.rows[0].id]
+      );
       return byEmail.rows[0];
     }
   }
@@ -124,14 +130,19 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email or username already exists' });
     }
 
-    // Register centrally if SSO enabled
+    // With SSO on, the account must be made centrally first. A local-only row would carry an
+    // email nobody verified, and the real owner's first SSO login would adopt it.
     let centralUserId = null;
     if (SSO_ENABLED) {
       try {
         const centralResult = await centralRegister({ username, email, password });
         centralUserId = normalizeCentral(centralResult).central_user_id;
       } catch (err) {
-        console.error('Central register failed, continuing locally:', err.message);
+        console.error('Central register failed:', err.message);
+        if (err.status >= 400 && err.status < 500) {
+          return res.status(400).json({ error: err.message });
+        }
+        return res.status(503).json({ error: 'Sign-up is unavailable right now. Please try again shortly.' });
       }
     }
 

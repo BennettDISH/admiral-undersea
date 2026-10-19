@@ -12,7 +12,8 @@ async function centralRegister({ username, email, password, first_name, last_nam
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err.error || 'Central registration failed');
+    // Keep the status so the caller can tell a refusal (4xx) from an outage.
+    throw Object.assign(new Error(err.error || 'Central registration failed'), { status: response.status });
   }
   return response.json();
 }
