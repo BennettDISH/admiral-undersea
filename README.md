@@ -3,8 +3,11 @@
 A digital, real-time version of the **Captain Sonar** board game — create or join a game, sit in a
 lobby, and play a live match in the browser.
 
+**Live:** https://adventurous-imagination-production-d42d.up.railway.app
+
 ## Stack
-React 18 + Vite (client) · Express + socket.io (server) · Postgres · bcryptjs + JWT sessions
+React 18 + Vite (client) · Express + socket.io (server, real-time multiplayer) · Postgres ·
+bcryptjs + JWT sessions
 
 Monorepo with separate `client/` and `server/` packages.
 
@@ -46,7 +49,12 @@ npm run dev                  # server (nodemon)
 npm run client               # Vite client (separate terminal)
 ```
 
-Production: `npm run build` (builds client), then `npm start` (serves via `server/index.js`).
+No Postgres handy? `cd server && npm run dev:local` runs the server on an in-process PGlite
+database (`PGLITE_DIR` to keep it on disk).
+
+Test: `cd server && npm test` (the rules engine plus a socket integration test).
+
+Production: `npm run build` (builds client), then `npm start` (serves `client/dist` via `server/index.js`).
 
 ## Layout
 - `shared/gameConstants.json` — board, sectors, systems, engineer circuits (single-sourced client+server).
@@ -58,7 +66,8 @@ Production: `npm run build` (builds client), then `npm start` (serves via `serve
 - `database/` — schema.
 
 ## Deploy
-Railway.
+Railway (project "online sea game"). The root `postinstall` installs both
+packages and builds the client; `npm start` then serves the API, sockets and the built client.
 
-## Notes
-Real-time multiplayer (socket.io).
+## Roadmap
+Open work lives in [docs/ROADMAP.md](docs/ROADMAP.md).
