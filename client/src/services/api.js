@@ -37,4 +37,11 @@ export const auth = {
   me: () => api.get('/auth/me')
 }
 
+// Look-only admin views. The server answers 403 unless the account is a site admin.
+export const admin = {
+  me: () => api.get('/admin/me'),
+  users: (params) => api.get('/admin/users', { params }),
+  games: (params) => api.get('/admin/games', { params })
+}
+
 export default api

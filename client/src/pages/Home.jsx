@@ -1,7 +1,14 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { admin } from '../services/api'
 
 function Home({ user, onLogout }) {
   const navigate = useNavigate()
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    admin.me().then((res) => setIsAdmin(res.data.isAdmin === true)).catch(() => setIsAdmin(false))
+  }, [])
 
   return (
     <div className="home-page">
@@ -12,6 +19,9 @@ function Home({ user, onLogout }) {
         </div>
         <div className="user-info">
           <span>Welcome, {user.username}</span>
+          {isAdmin && (
+            <button onClick={() => navigate('/admin')} className="logout-btn">Admin</button>
+          )}
           <button onClick={onLogout} className="logout-btn">Logout</button>
         </div>
       </header>

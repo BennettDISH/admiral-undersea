@@ -9,6 +9,7 @@ const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const gameRoutes = require('./routes/games');
+const adminRoutes = require('./routes/admin');
 const setupGameSockets = require('./sockets/game');
 const initDb = require('./config/initDb');
 
@@ -42,6 +43,7 @@ app.use(cookieParser());
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/games', gameRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Setup game sockets
 setupGameSockets(io);

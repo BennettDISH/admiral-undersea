@@ -8,6 +8,7 @@ import JoinGame from './pages/JoinGame'
 import Lobby from './pages/Lobby'
 import Game from './pages/Game'
 import AuthCallback from './pages/AuthCallback'
+import Admin from './pages/Admin'
 import { disconnectSocket } from './services/socket'
 
 function App() {
@@ -73,6 +74,10 @@ function App() {
         <Route
           path="/game/:code"
           element={user ? <Game user={user} /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/admin"
+          element={user ? <Admin /> : <Navigate to="/login" />}
         />
       </Routes>
     </div>
