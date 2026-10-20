@@ -109,6 +109,9 @@ function Login({ onLogin }) {
         <p className="auth-link">
           Don't have an account? <Link to="/register">Register</Link>
         </p>
+        <p className="auth-link">
+          <a href="https://quickplay-arcade-production.up.railway.app/">← All games</a>
+        </p>
       </div>
     </div>
   )

@@ -241,6 +241,17 @@ button {
   }
 }
 
+.games-link {
+  font-size: 0.85rem;
+  color: var(--hydro);
+  text-decoration: none;
+
+  &:hover,
+  &:focus-visible {
+    text-decoration: underline;
+  }
+}
+
 .user-info {
   display: flex;
   align-items: center;

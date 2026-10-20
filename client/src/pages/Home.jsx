@@ -6,7 +6,10 @@ function Home({ user, onLogout }) {
   return (
     <div className="home-page">
       <header className="header">
-        <h1>Admiral Undersea</h1>
+        <div>
+          <a className="games-link" href="https://quickplay-arcade-production.up.railway.app/">← All games</a>
+          <h1>Admiral Undersea</h1>
+        </div>
         <div className="user-info">
           <span>Welcome, {user.username}</span>
           <button onClick={onLogout} className="logout-btn">Logout</button>
