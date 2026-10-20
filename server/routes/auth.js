@@ -46,6 +46,8 @@ async function findOrCreateLocalUser(central) {
         local.email = central.email;
         local.username = central.username;
       }
+      // every sign-in is noted: the guest sweep goes by it (services/guestSweep.js)
+      await db.query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [local.id]);
       return local;
     }
   }
@@ -71,7 +73,7 @@ async function findOrCreateLocalUser(central) {
     // this email, so leaving it would let them keep signing in to the central owner's row.
     if (byEmail.rows.length > 0) {
       await db.query(
-        `UPDATE users SET central_user_id = $1, password_hash = 'sso-managed', updated_at = NOW() WHERE id = $2`,
+        `UPDATE users SET central_user_id = $1, password_hash = 'sso-managed', updated_at = NOW(), last_seen_at = NOW() WHERE id = $2`,
         [central.central_user_id, byEmail.rows[0].id]
       );
       return byEmail.rows[0];

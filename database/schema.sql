@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS game_players (
 -- Idempotent column migrations, so an existing database ends up with the same shape as
 -- a fresh one. The IF NOT EXISTS / IF EXISTS guards make re-running harmless.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS central_user_id INTEGER;
+-- The last Waypoint sign-in (server/routes/auth.js), for the guest sweep
+-- (server/services/guestSweep.js). A row from before the column counts as seen when it
+-- arrives; a new row is seen when it is made.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP DEFAULT NOW();
 ALTER TABLE game_players ADD COLUMN IF NOT EXISTS roles VARCHAR(255);
 
 -- games.map_id was created for a map picker that was never built: nothing in the server,

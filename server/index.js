@@ -12,6 +12,7 @@ const gameRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const setupGameSockets = require('./sockets/game');
 const initDb = require('./config/initDb');
+const { scheduleGuestSweep } = require('./services/guestSweep');
 
 const app = express();
 const httpServer = createServer(app);
@@ -71,6 +72,7 @@ async function start() {
   httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
+  scheduleGuestSweep(); // idle guests go a minute after boot, then daily
 }
 
 start();
