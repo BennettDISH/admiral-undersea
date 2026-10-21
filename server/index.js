@@ -12,13 +12,17 @@ const gameRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const setupGameSockets = require('./sockets/game');
 const initDb = require('./config/initDb');
+const { corsOrigin } = require('./config/origin');
 const { scheduleGuestSweep } = require('./services/guestSweep');
+
+// FRONTEND_URL, or nobody but this site in production (see config/origin.js).
+const allowedOrigin = corsOrigin();
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: allowedOrigin,
     credentials: true
   }
 });
@@ -34,7 +38,7 @@ app.use(helmet({
   contentSecurityPolicy: false
 }));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: allowedOrigin,
   credentials: true
 }));
 app.use(morgan('dev'));

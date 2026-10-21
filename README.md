@@ -30,7 +30,7 @@ The server reads these env vars (set them in Railway):
 | `JWT_SECRET` | **yes in production** | Signs session tokens. The server **refuses to start** in production without it. |
 | `NODE_ENV` | recommended | Set to `production` on Railway (enables the `JWT_SECRET` guard + Express prod mode). |
 | `PORT` | no | Provided by Railway; defaults to 5000. |
-| `FRONTEND_URL` | no | CORS / socket origin; defaults to `http://localhost:5173`. |
+| `FRONTEND_URL` | no | Another origin allowed to call the API and open sockets, only for a client hosted elsewhere. Unset, production allows only its own pages (same-origin needs no CORS); development allows the Vite dev server, `http://localhost:5173`. |
 | `AUTH_SERVICE_URL`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | no | Central SSO. All three enable the "Sign in with SSO" button. Set **server-side only** — no build-time (`VITE_`) vars needed. |
 | `APP_BASE_URL` | no | Overrides the origin used to build the OAuth `redirect_uri`. Only needed if the request host differs from the public URL. |
 
