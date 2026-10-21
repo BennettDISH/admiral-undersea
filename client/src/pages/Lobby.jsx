@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import socket, { connectSocket } from '../services/socket'
+import { joinGameOnConnect } from '../lib/gameRoom'
 import RoleHelp from '../game/RoleHelp'
 
 const ROLES = [
@@ -25,8 +26,7 @@ function Lobby({ user }) {
   useEffect(() => {
     loadGame()
     connectSocket()
-
-    socket.emit('join-game', { gameCode: code, userId: user.id, username: user.username })
+    const stopJoining = joinGameOnConnect(socket, code)
 
     socket.on('player-joined', ({ userId, username }) => {
       console.log(`${username} joined`)
@@ -45,6 +45,7 @@ function Lobby({ user }) {
     })
 
     return () => {
+      stopJoining()
       socket.off('player-joined')
       socket.off('player-left')
       socket.off('team-updated')

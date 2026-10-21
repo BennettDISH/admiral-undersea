@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import socket, { connectSocket } from '../services/socket'
+import { joinGameOnConnect } from '../lib/gameRoom'
 import MapBoard from '../game/MapBoard'
 import EventLog from '../game/EventLog'
 import ToastHost from '../game/ToastHost'
@@ -85,7 +86,8 @@ function Game({ user }) {
   useEffect(() => {
     loadGame()
     connectSocket()
-    socket.emit('join-game', { gameCode: code })
+    // A rejoin also gets this team's game-state back, which applyState hydrates from.
+    const stopJoining = joinGameOnConnect(socket, code)
 
     const applyState = (state) => {
       setGameState(state)
@@ -194,6 +196,7 @@ function Game({ user }) {
     })
 
     return () => {
+      stopJoining()
       ;['game-state', 'game-started', 'move-announced', 'play-move-sound', 'role-confirmed', 'turn-complete',
         'system-charged', 'damage-marked', 'torpedo-hit', 'torpedo-miss', 'mine-exploded', 'mine-placed',
         'hull-damage', 'drone-result', 'sonar-request', 'sonar-answered', 'sonar-result', 'silence-activated',
