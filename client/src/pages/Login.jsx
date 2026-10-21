@@ -1,20 +1,72 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { auth } from '../services/api'
+import { HOLD_KEY, AUTO_KEY, holdReason, goStraightToWaypoint, returnPath, startWaypoint } from '../lib/signIn'
 
-function Login({ onLogin }) {
+// Sign-in is Waypoint's job. With SSO configured, arriving here signed out goes straight to
+// Waypoint, whose own page takes the password or offers "Continue as guest", so the game has
+// no form of its own to type a password into. After Sign out or a failed attempt the page
+// waits for a click instead. The game's old password form, guest button and Register are
+// kept behind ?local for now; without SSO they are the whole page, as before.
+function Login({ user, ssoEnabled, onLogin }) {
+  const location = useLocation()
+  const wantsLocal = new URLSearchParams(location.search).has('local')
+  const [hold] = useState(() => holdReason(sessionStorage.getItem(HOLD_KEY)))
+  const [lastAutoAt] = useState(() => sessionStorage.getItem(AUTO_KEY))
+  const started = useRef(false)
+  const from = location.state?.from
+  const back = from ? returnPath(from.pathname, from.search) : null
+
+  const straight = !user && goStraightToWaypoint({ ssoEnabled, hold, wantsLocal, lastAutoAt })
+  useEffect(() => {
+    if (straight && !started.current) {
+      started.current = true
+      startWaypoint({ back, automatic: true })
+    }
+  })
+
+  if (user && !wantsLocal) {
+    return <Navigate to={back || '/'} replace />
+  }
+
+  if (ssoEnabled === null || straight) {
+    return (
+      <div className="auth-page">
+        <div className="auth-container">
+          <h1>Admiral Undersea</h1>
+          <h2>{straight ? 'Taking you to Waypoint…' : 'Loading…'}</h2>
+        </div>
+      </div>
+    )
+  }
+
+  if (!ssoEnabled || wantsLocal) {
+    return <LocalSignIn ssoEnabled={ssoEnabled} onLogin={onLogin} />
+  }
+
+  return (
+    <div className="auth-page">
+      <div className="auth-container">
+        <h1>Admiral Undersea</h1>
+        <h2>
+          {hold === 'signed-out' ? 'You are signed out.'
+            : hold === 'failed' ? 'Waypoint sign-in did not finish. Try again.'
+            : 'Sign in with your Waypoint account, or play as a guest.'}
+        </h2>
+        <button type="button" className="sso-primary" onClick={() => startWaypoint({ back })} autoFocus>
+          Continue with Waypoint
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// The game's own form, one-click guest and Register, from before sign-in moved to Waypoint.
+function LocalSignIn({ ssoEnabled, onLogin }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [ssoEnabled, setSsoEnabled] = useState(false)
-
-  // SSO is configured entirely server-side now; ask whether to show the button.
-  useEffect(() => {
-    auth.config()
-      .then(res => setSsoEnabled(!!res.data.ssoEnabled))
-      .catch(() => setSsoEnabled(false))
-  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -93,7 +145,7 @@ function Login({ onLogin }) {
             <button
               type="button"
               className="sso-button"
-              onClick={() => { window.location.href = '/api/auth/sso/login' }}
+              onClick={() => startWaypoint()}
             >
               Sign in with Waypoint
             </button>
@@ -107,10 +159,7 @@ function Login({ onLogin }) {
         )}
 
         <p className="auth-link">
-          Don't have an account? <Link to="/register">Register</Link>
-        </p>
-        <p className="auth-link">
-          <a href="https://quickplay-arcade-production.up.railway.app/">← All games</a>
+          Don't have an account? <Link to="/register?local">Register</Link>
         </p>
       </div>
     </div>

@@ -223,9 +223,10 @@ router.post('/login', async (req, res) => {
 });
 
 // Public config so the client can decide whether to show the SSO button without any
-// build-time (VITE) vars — SSO is now configured entirely server-side.
+// build-time (VITE) vars — SSO is now configured entirely server-side. authUrl is Waypoint's
+// address, for the top bar's "Sign out of all games" (its /logout page).
 router.get('/config', (req, res) => {
-  res.json({ ssoEnabled: SSO_ENABLED });
+  res.json({ ssoEnabled: SSO_ENABLED, authUrl: SSO_ENABLED ? AUTH_SERVICE_URL : null });
 });
 
 // Begin SSO: remember a random state in an httpOnly cookie and bounce to the auth-service
@@ -238,6 +239,8 @@ router.get('/sso/login', (req, res) => {
   url.searchParams.set('client_id', SSO_CLIENT_ID);
   url.searchParams.set('redirect_uri', `${baseUrl(req)}/auth/callback`);
   url.searchParams.set('state', state);
+  // Switch account: Waypoint asks which account again instead of reusing its session.
+  if (req.query.prompt === 'login') url.searchParams.set('prompt', 'login');
   res.redirect(url.toString());
 });
 

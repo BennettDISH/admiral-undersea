@@ -1,18 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { auth } from '../services/api'
+import { RETURN_KEY, HOLD_KEY, safeReturnPath } from '../lib/signIn'
 
 function AuthCallback({ onLogin }) {
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const ran = useRef(false)
 
   useEffect(() => {
+    // The code is single-use and the server clears its state cookie on the first post, so
+    // this runs once.
+    if (ran.current) return
+    ran.current = true
+
+    // A failed attempt keeps the sign-in page up rather than going straight back to
+    // Waypoint, so a broken sign-in can't loop. Signing in clears it.
+    const fail = (message) => {
+      sessionStorage.setItem(HOLD_KEY, 'failed')
+      setError(message)
+    }
+
     const params = new URLSearchParams(window.location.search)
     const code = params.get('code')
     const state = params.get('state')
 
     if (!code || !state) {
-      setError('Invalid SSO callback')
+      fail('Invalid SSO callback')
       return
     }
 
@@ -22,11 +36,14 @@ function AuthCallback({ onLogin }) {
         if (res.data.token) {
           localStorage.setItem('token', res.data.token)
         }
+        // Back to the page that sent you to Waypoint (a game link, say), else home.
+        const back = safeReturnPath(sessionStorage.getItem(RETURN_KEY))
+        sessionStorage.removeItem(RETURN_KEY)
         onLogin(res.data.user)
-        navigate('/')
+        navigate(back, { replace: true })
       })
       .catch(() => {
-        setError('SSO authentication failed')
+        fail('SSO authentication failed')
       })
   }, [navigate, onLogin])
 

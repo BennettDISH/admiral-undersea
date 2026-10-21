@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { auth } from '../services/api'
 
+// Accounts are made on Waypoint's page now; this form is kept behind ?local for a while.
 function Register({ onLogin }) {
+  const wantsLocal = new URLSearchParams(useLocation().search).has('local')
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -33,6 +35,8 @@ function Register({ onLogin }) {
       setLoading(false)
     }
   }
+
+  if (!wantsLocal) return <Navigate to="/login" replace />
 
   return (
     <div className="auth-page">
@@ -94,7 +98,7 @@ function Register({ onLogin }) {
         </form>
 
         <p className="auth-link">
-          Already have an account? <Link to="/login">Login</Link>
+          Already have an account? <Link to="/login?local">Login</Link>
         </p>
       </div>
     </div>

@@ -13,14 +13,15 @@ api.interceptors.request.use((config) => {
 })
 
 // If the session is rejected, clear it and bounce to login rather than leaving the
-// user stuck with a dead token.
+// user stuck with a dead token. Not from the SSO callback page, which shows its own error and
+// holds the sign-in page so a failed Waypoint sign-in can't loop.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
-      if (window.location.pathname !== '/login') {
+      if (!['/login', '/auth/callback'].includes(window.location.pathname)) {
         window.location.href = '/login'
       }
     }

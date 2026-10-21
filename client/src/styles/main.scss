@@ -55,14 +55,14 @@ body::before {
 }
 
 .app {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--top-bar));
 }
 
 .loading {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--top-bar));
   font-size: 1.5rem;
 }
 
@@ -71,7 +71,7 @@ body::before {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--top-bar));
   padding: 2rem;
 }
 
@@ -225,7 +225,7 @@ button {
 
 // Home page
 .home-page {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--top-bar));
 }
 
 .header {
@@ -238,17 +238,6 @@ button {
   h1 {
     font-size: 1.5rem;
     color: #00d4ff;
-  }
-}
-
-.games-link {
-  font-size: 0.85rem;
-  color: var(--hydro);
-  text-decoration: none;
-
-  &:hover,
-  &:focus-visible {
-    text-decoration: underline;
   }
 }
 
@@ -324,7 +313,7 @@ button {
 // Create Game page
 .create-game-page,
 .join-game-page {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--top-bar));
   padding: 2rem;
   max-width: 600px;
   margin: 0 auto;
@@ -388,7 +377,7 @@ button {
 
 // Lobby page
 .lobby-page {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--top-bar));
   padding: 1.5rem;
 }
 
@@ -590,7 +579,7 @@ button {
 
 // Game page
 .game-page {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--top-bar));
   display: flex;
   flex-direction: column;
 }
@@ -1731,7 +1720,7 @@ button {
 // ---- Sonar answer modal ----
 .sonar-answer-modal {
   position: fixed;
-  inset: 0;
+  inset: var(--top-bar) 0 0 0;
   background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
@@ -1782,7 +1771,7 @@ button {
 
 .toast-host {
   position: fixed;
-  top: 1rem;
+  top: calc(1rem + var(--top-bar));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -2182,7 +2171,7 @@ h2, h3 { text-transform: uppercase; }
 
 // Admin page (look-only)
 .admin-page {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--top-bar));
   padding: 1.5rem;
   max-width: 1200px;
   margin: 0 auto;

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { admin } from '../services/api'
 
-function Home({ user, onLogout }) {
+function Home() {
   const navigate = useNavigate()
   const [isAdmin, setIsAdmin] = useState(false)
 
@@ -12,18 +12,14 @@ function Home({ user, onLogout }) {
 
   return (
     <div className="home-page">
+      {/* The arcade link and the account (name, sign out) live in the top bar. */}
       <header className="header">
-        <div>
-          <a className="games-link" href="https://quickplay-arcade-production.up.railway.app/">← All games</a>
-          <h1>Admiral Undersea</h1>
-        </div>
-        <div className="user-info">
-          <span>Welcome, {user.username}</span>
-          {isAdmin && (
+        <h1>Admiral Undersea</h1>
+        {isAdmin && (
+          <div className="user-info">
             <button onClick={() => navigate('/admin')} className="logout-btn">Admin</button>
-          )}
-          <button onClick={onLogout} className="logout-btn">Logout</button>
-        </div>
+          </div>
+        )}
       </header>
 
       <main className="main-content">
