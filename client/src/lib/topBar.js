@@ -11,9 +11,10 @@ export function chipLabel(user) {
   return user.display_name || user.username || 'Account';
 }
 
-// Waypoint's sign-out page, which ends the Waypoint session every game's sign-in reuses.
-// null when Waypoint's address isn't known (SSO off), and the menu leaves the item out.
+// Waypoint's sign-out, which ends the Waypoint session every game's sign-in reuses, then
+// sends you on to the arcade (return_to). null when Waypoint's address isn't known (SSO off),
+// and the menu leaves the item out.
 export function waypointLogoutUrl(authUrl) {
   if (typeof authUrl !== 'string' || !/^https?:\/\/[^/]/.test(authUrl)) return null;
-  return `${authUrl.replace(/\/+$/, '')}/logout`;
+  return `${authUrl.replace(/\/+$/, '')}/logout?return_to=${encodeURIComponent(ARCADE_URL)}`;
 }

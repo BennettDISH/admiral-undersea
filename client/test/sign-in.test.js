@@ -99,6 +99,6 @@ test('the top bar: arcade link, chip label, Waypoint sign-out', () => {
   assert.equal(chipLabel(null), 'Sign in')
   assert.equal(chipLabel({ username: 'captain' }), 'captain')
   assert.equal(chipLabel({ username: 'guest-swift-otter-4821' }), 'Guest')
-  assert.equal(waypointLogoutUrl('https://auth.example'), 'https://auth.example/logout')
+  assert.equal(waypointLogoutUrl('https://auth.example'), 'https://auth.example/logout?return_to=https%3A%2F%2Fquickplay-arcade-production.up.railway.app%2F')
   assert.equal(waypointLogoutUrl(null), null)
 })
