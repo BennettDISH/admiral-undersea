@@ -5,6 +5,7 @@ const db = require('../config/database');
 const { verifyToken } = require('../config/jwt');
 const engine = require('../game/engine');
 const { getSystemMax, DEFAULT_PRIORITY, REQUIRED_ROLES, TUNABLES } = require('../game/constants');
+const { tokenBucket } = require('./rateLimit');
 
 // In-memory game state, keyed by game code. Survives disconnects (not tied to a socket).
 const gameStates = new Map();
@@ -223,9 +224,12 @@ function setupGameSockets(io) {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id, 'user', socket.userId);
 
-    // Wrap handlers so a throw logs instead of crashing the process.
+    // Wrap handlers so a throw logs instead of crashing the process, and so a socket sending
+    // faster than anyone plays has the excess dropped (sockets/rateLimit.js).
+    const take = tokenBucket();
     const on = (event, handler) => {
       socket.on(event, async (payload) => {
+        if (!take()) return;
         try { await handler(payload || {}); }
         catch (err) { console.error(`socket '${event}' handler error:`, err); }
       });
