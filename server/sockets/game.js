@@ -149,8 +149,9 @@ function setupGameSockets(io) {
       state.persisted = true;
     }
     try {
+      // Only a game being played finishes: a result already recorded is never overwritten.
       await db.query(
-        `UPDATE games SET status = 'finished', winner_team = $1, ended_at = NOW() WHERE code = $2`,
+        `UPDATE games SET status = 'finished', winner_team = $1, ended_at = NOW() WHERE code = $2 AND status = 'playing'`,
         [winner, gameCode],
       );
     } catch (err) { console.error('Failed to persist game result:', err); }
@@ -382,7 +383,17 @@ function setupGameSockets(io) {
       const team = teamIn(gameCode);
       if (!team) return;
       if (!['N', 'S', 'E', 'W'].includes(direction)) return;
-      const state = ensurePlayableState(gameCode);
+      let state = gameStates.get(gameCode);
+      if (!state?.submarines) {
+        // No match in memory: the server restarted (every deploy does) or the game never
+        // started. Only a game the database says is being played gets a fresh board, in the
+        // mode it was made with. A lobby or finished game is not played here: a finished one
+        // would otherwise be replayed and its stored winner overwritten.
+        const g = await db.query('SELECT status, game_mode, same_room FROM games WHERE code = $1', [gameCode]);
+        const row = g.rows[0];
+        if (!row || row.status !== 'playing') return socket.emit('action-rejected', { action: 'move', reason: 'not-playing' });
+        state = ensurePlayableState(gameCode, row.game_mode === 'live' ? 'live' : 'turn-based', !!row.same_room);
+      }
       const sub = state.submarines[team];
       if (!sub) return;
 

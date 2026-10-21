@@ -60,6 +60,7 @@ const hasRoom = (emitted, ev, room) => emitted.some((e) => e.ev === ev && (!room
 test('adapter rejects an illegal move to the acting socket', async () => {
   const { connect } = harness();
   const alpha = connect('alpha', 'G1');
+  await alpha._handlers['start-game']({ gameCode: 'G1' }); // alpha (user 1) made the game
   await alpha._handlers['captain-move']({ gameCode: 'G1', direction: 'E' }); // (1,1)->island
   const rej = alpha._emitted.find((e) => e.ev === 'action-rejected');
   assert.ok(rej, 'expected action-rejected');
@@ -69,6 +70,7 @@ test('adapter rejects an illegal move to the acting socket', async () => {
 test('adapter routes a legal move to room + game-state to both teams', async () => {
   const { emitted, connect } = harness();
   const alpha = connect('alpha', 'G2');
+  await alpha._handlers['start-game']({ gameCode: 'G2' });
   await alpha._handlers['captain-move']({ gameCode: 'G2', direction: 'S' });
   assert.ok(hasRoom(emitted, 'move-announced', 'game:G2'));
   assert.ok(hasRoom(emitted, 'game-state', 'game:G2:alpha'));
@@ -80,6 +82,7 @@ test('adapter routes a legal move to room + game-state to both teams', async () 
 test('adapter confirm loop completes the turn once required roles ack', async () => {
   const { emitted, connect } = harness();
   const alpha = connect('alpha', 'G3');
+  await alpha._handlers['start-game']({ gameCode: 'G3' });
   await alpha._handlers['captain-move']({ gameCode: 'G3', direction: 'S' });
   await alpha._handlers['aye-captain']({ gameCode: 'G3', role: 'first-mate' });
   await alpha._handlers['aye-captain']({ gameCode: 'G3', role: 'engineer' });
@@ -102,6 +105,7 @@ test('select-team is refused once the game has started (blocks enemy-room join /
 test('adapter marks damage using the server-tracked move direction', async () => {
   const { emitted, connect } = harness();
   const alpha = connect('alpha', 'G4');
+  await alpha._handlers['start-game']({ gameCode: 'G4' });
   await alpha._handlers['captain-move']({ gameCode: 'G4', direction: 'S' }); // lastMoveDir = S
   emitted.length = 0;
   // s1 is a valid slot in the S section; client only sends slotId now.
@@ -115,6 +119,7 @@ test('adapter marks damage using the server-tracked move direction', async () =>
 test('an action naming a game the socket did not join is ignored', async () => {
   const { emitted, connect } = harness();
   const alpha = connect('alpha', 'G9'); // seated on alpha in G9 only
+  await alpha._handlers['start-game']({ gameCode: 'G9' });
   await alpha._handlers['captain-move']({ gameCode: 'OTHER', direction: 'S' });
   assert.ok(!hasRoom(emitted, 'move-announced', 'game:OTHER'), 'must not steer a sub in another game');
   assert.strictEqual(alpha._emitted.length, 0);
@@ -184,6 +189,7 @@ test('the automated first mate charges only real systems, in the order given', a
   await alpha._handlers['set-automated-roles']({ gameCode: 'G15', team: 'alpha', automatedRoles: ['first-mate'] });
   await alpha._handlers['set-system-priority']({ gameCode: 'G15', team: 'alpha', systemPriority: 7 }); // ignored
   await alpha._handlers['set-system-priority']({ gameCode: 'G15', team: 'alpha', systemPriority: ['__proto__', 'warp', 'sonar', 'sonar', 'mine'] });
+  await alpha._handlers['start-game']({ gameCode: 'G15' }); // carries the lobby setup into the match
   await alpha._handlers['captain-move']({ gameCode: 'G15', direction: 'S' });
   await new Promise((r) => setTimeout(r, 600)); // automation runs after AUTOMATION_DELAY_MS
   const charged = emitted.find((e) => e.ev === 'system-charged');
