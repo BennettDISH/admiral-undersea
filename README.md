@@ -58,15 +58,17 @@ Production: `npm run build` (builds client), then `npm start` (serves `client/di
 
 ## Layout
 - `shared/gameConstants.json` — board, sectors, systems, engineer circuits (single-sourced client+server).
-- `client/src/pages/` — Home, Login, Register, AuthCallback, CreateGame, JoinGame, Lobby, Game.
+- `client/src/pages/` — Home, Login, Register, AuthCallback, CreateGame, JoinGame, Lobby, Game, Admin.
 - `client/src/game/` — `MapBoard`, shared `constants.js`, `radio.js` (deduction), `EventLog`, `ToastHost`.
+- `client/src/components/TopBar.jsx` and `client/src/lib/` — the shared games top bar, Waypoint sign-in, joining a game's room.
 - `server/game/` — pure rules engine: `constants.js`, `map.js`, `engine.js` (+ `*.test.js`).
-- `server/sockets/game.js` — thin socket.io adapter over the engine.
-- `server/routes/` — `auth.js`, `games.js`.
+- `server/sockets/game.js` — thin socket.io adapter over the engine; `rateLimit.js` caps events per socket.
+- `server/routes/` — `auth.js`, `games.js`, `admin.js` (look-only admin views); `server/middleware/` — session and admin checks.
+- `server/services/guestSweep.js` — removes guests idle for 30 days.
 - `database/` — schema.
 
 ## Deploy
-Railway (project "online sea game"). The root `postinstall` installs both
+Railway (project "Games", with the other games). The root `postinstall` installs both
 packages and builds the client; `npm start` then serves the API, sockets and the built client.
 
 ## Roadmap
