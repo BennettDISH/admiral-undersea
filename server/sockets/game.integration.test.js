@@ -6,11 +6,13 @@ const assert = require('node:assert');
 
 // Inject module mocks BEFORE requiring the adapter (same absolute paths it resolves).
 let gameStatus = 'lobby'; // flip to exercise the mid-game team-switch guard
+const dbCalls = []; // every query, for the tests that check what was written
 const dbPath = require.resolve('../config/database');
 require.cache[dbPath] = {
   id: dbPath, filename: dbPath, loaded: true,
   exports: {
-    query: async (text) => {
+    query: async (text, params) => {
+      dbCalls.push({ text, params });
       if (/from games/i.test(text) && /status/i.test(text)) return { rows: [{ id: 1, status: gameStatus, created_by: 1 }] }; // user 1 (alpha) made it
       if (/from games/i.test(text)) return { rows: [{ id: 1 }] };
       return { rows: [] };
@@ -156,4 +158,37 @@ test('automation can only be set for your own team', async () => {
   assert.ok(!hasRoom(emitted, 'automated-roles-updated'));
   await alpha._handlers['set-automated-roles']({ gameCode: 'G13', team: 'alpha', automatedRoles: ['engineer'] });
   assert.ok(hasRoom(emitted, 'automated-roles-updated', 'game:G13'));
+});
+
+test('lobby picks keep only known roles, each once', async () => {
+  const { emitted, connect } = harness();
+  const alpha = connect('alpha', 'G14');
+  dbCalls.length = 0;
+  await alpha._handlers['select-roles']({ gameCode: 'G14', roles: ['captain', 'admiral', 'captain', { x: 1 }, 'engineer'] });
+  const write = dbCalls.find((c) => /update game_players set roles/i.test(c.text));
+  assert.strictEqual(write.params[0], 'captain,engineer');
+  assert.deepStrictEqual(alpha.roles, ['captain', 'engineer']);
+  assert.deepStrictEqual(emitted.find((e) => e.ev === 'roles-updated').payload.roles, ['captain', 'engineer']);
+
+  await alpha._handlers['set-automated-roles']({ gameCode: 'G14', team: 'alpha', automatedRoles: ['captain', 'first-mate', 'x'.repeat(1000), 'first-mate'] });
+  assert.deepStrictEqual(emitted.find((e) => e.ev === 'automated-roles-updated').payload.automatedRoles, ['first-mate']);
+
+  emitted.length = 0;
+  await alpha._handlers['set-automated-roles']({ gameCode: 'G14', team: 'alpha', automatedRoles: 'engineer' });
+  assert.ok(!hasRoom(emitted, 'automated-roles-updated'), 'not a list, not taken');
+});
+
+test('the automated first mate charges only real systems, in the order given', async () => {
+  const { emitted, connect } = harness();
+  const alpha = connect('alpha', 'G15');
+  await alpha._handlers['set-automated-roles']({ gameCode: 'G15', team: 'alpha', automatedRoles: ['first-mate'] });
+  await alpha._handlers['set-system-priority']({ gameCode: 'G15', team: 'alpha', systemPriority: 7 }); // ignored
+  await alpha._handlers['set-system-priority']({ gameCode: 'G15', team: 'alpha', systemPriority: ['__proto__', 'warp', 'sonar', 'sonar', 'mine'] });
+  await alpha._handlers['captain-move']({ gameCode: 'G15', direction: 'S' });
+  await new Promise((r) => setTimeout(r, 600)); // automation runs after AUTOMATION_DELAY_MS
+  const charged = emitted.find((e) => e.ev === 'system-charged');
+  assert.ok(charged, 'the automated first mate charged something');
+  assert.strictEqual(charged.payload.system, 'sonar');
+  const state = emitted.filter((e) => e.ev === 'game-state' && e.room === 'game:G15:alpha').pop();
+  assert.deepStrictEqual(state.payload.systemPriority, ['sonar', 'mine']);
 });

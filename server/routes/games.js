@@ -7,6 +7,8 @@ const router = express.Router();
 // All game routes require an authenticated user.
 router.use(requireAuth);
 
+const GAME_MODES = ['turn-based', 'live'];
+
 // Generate a random 6-character game code
 function generateGameCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -19,8 +21,18 @@ function generateGameCode() {
 
 // Create a new game
 router.post('/create', async (req, res) => {
-  const { sameRoom, gameMode } = req.body;
+  const sameRoom = req.body?.sameRoom ?? false;
+  const gameMode = req.body?.gameMode ?? 'turn-based';
   const userId = req.user.id;
+
+  // The engine knows two modes, and same_room is a yes/no. Anything else used to be stored
+  // as given (or failed as a database error) and then played as an unknown mode.
+  if (!GAME_MODES.includes(gameMode)) {
+    return res.status(400).json({ error: 'Game mode must be turn-based or live' });
+  }
+  if (typeof sameRoom !== 'boolean') {
+    return res.status(400).json({ error: 'sameRoom must be true or false' });
+  }
 
   try {
     let code = generateGameCode();
@@ -36,7 +48,7 @@ router.post('/create', async (req, res) => {
       `INSERT INTO games (code, status, same_room, game_mode, created_by, created_at)
        VALUES ($1, 'lobby', $2, $3, $4, NOW())
        RETURNING id, code, status, same_room, game_mode, created_at`,
-      [code, sameRoom || false, gameMode || 'turn-based', userId]
+      [code, sameRoom, gameMode, userId]
     );
 
     res.status(201).json({

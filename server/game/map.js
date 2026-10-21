@@ -3,8 +3,10 @@ const { MAP, BOARD } = require('./constants');
 
 const key = (x, y) => `${x},${y}`;
 
+// Whole cells only: a target of x 1.5 would otherwise pass and index MAP[1.5], which throws.
 function inBounds(x, y) {
-  return x >= 0 && y >= 0 && x < BOARD.width && y < BOARD.height;
+  return Number.isInteger(x) && Number.isInteger(y)
+    && x >= 0 && y >= 0 && x < BOARD.width && y < BOARD.height;
 }
 
 // A cell is water (playable) when it's in bounds and not an island (1).

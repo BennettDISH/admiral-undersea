@@ -314,3 +314,57 @@ test('enemy view hides position/path/systems/mines but shows health + surface', 
   assert.strictEqual(view.submarines.alpha.surfacedSector, 3);
   assert.ok(Array.isArray(view.legalMoves));
 });
+
+// ---------------------------------------------------------------- input from the client
+test('only the crew stations confirm, so junk never piles up in confirmedRoles', () => {
+  const s = game('live'); // live mode never clears confirmedRoles
+  for (const role of ['captain', 'junk-1', 'junk-2', { big: 'x'.repeat(100) }, undefined]) {
+    const r = E.confirmRole(s, 'alpha', role);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.error.reason, 'bad-role');
+  }
+  assert.deepStrictEqual(s.submarines.alpha.confirmedRoles, []);
+  assert.ok(E.confirmRole(s, 'alpha', 'engineer').ok);
+});
+
+test('a sonar reply needs two real facts, and only their type + value reach the asker', () => {
+  const s = game();
+  place(s, 'alpha', 1, 1, { systems: { ...s.submarines.alpha.systems, sonar: 3 } });
+  place(s, 'bravo', 3, 4); // row 4, col 3, sector 1
+  E.useSonar(s, 'alpha');
+  const bad = [
+    [{ type: 'sector', value: 1 }, { type: 'mood', value: 2 }], // one true + one meaningless
+    [{ type: 'sector', value: 1 }, { type: 'row', value: '9' }],
+    [{ type: 'sector', value: 1 }, { type: 'row', value: 9.5 }],
+    [{ type: 'sector', value: 1 }, 'row 9'],
+    [{ type: 'sector', value: 1 }, null],
+  ];
+  for (const facts of bad) {
+    assert.strictEqual(E.resolveSonar(s, 'bravo', facts).error?.reason, 'bad-fact', JSON.stringify(facts));
+  }
+  assert.ok(s.submarines.bravo.pendingSonar, 'still owed after the bad replies');
+
+  const r = E.resolveSonar(s, 'bravo', [{ type: 'sector', value: 1, note: 'x'.repeat(500) }, { type: 'row', value: 9 }], { shuffle: false });
+  assert.ok(r.ok);
+  assert.deepStrictEqual(find(r.events, 'sonar-result').payload.facts, [{ type: 'sector', value: 1 }, { type: 'row', value: 9 }]);
+});
+
+test('weapons aimed between cells are refused instead of throwing', () => {
+  const s = game();
+  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, torpedo: 3, mine: 3 } });
+  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6.5, y: 5.5 }).error.reason, 'target-island');
+  assert.strictEqual(E.placeMine(s, 'alpha', { x: 5.5, y: 5 }).error.reason, 'target-island');
+  assert.strictEqual(s.submarines.alpha.systems.torpedo, 3, 'nothing spent');
+  assert.strictEqual(s.submarines.alpha.systems.mine, 3, 'nothing spent');
+});
+
+test('blasts announce the cell and nothing else the client sent', () => {
+  const s = game();
+  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, torpedo: 3 }, mines: [{ x: 5, y: 6 }] });
+  place(s, 'bravo', 0, 9);
+  const shot = E.fireTorpedo(s, 'alpha', { x: 6, y: 5, junk: 'x'.repeat(500) });
+  assert.deepStrictEqual(find(shot.events, 'blast-resolved').payload.origin, { x: 6, y: 5 });
+  assert.deepStrictEqual(find(shot.events, 'torpedo-miss').payload.target, { x: 6, y: 5 });
+  const boom = E.detonateMine(s, 'alpha', { x: 5, y: 6, junk: 'x'.repeat(500) });
+  assert.deepStrictEqual(find(boom.events, 'mine-exploded').payload.origin, { x: 5, y: 6 });
+});

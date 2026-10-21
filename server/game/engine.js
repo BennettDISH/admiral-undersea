@@ -232,6 +232,9 @@ function markBreakdown(state, team, direction, slotId, actorTeam) {
 // ---- confirm loop (turn-based) --------------------------------------------
 function confirmRole(state, team, role) {
   if (state.gameOver) return reject('confirm', 'game-over');
+  // Only the crew stations confirm. Anything else would pile up in confirmedRoles (live mode
+  // never clears it) and ride along in every state broadcast.
+  if (!REQUIRED_ROLES.includes(role)) return reject('confirm', 'bad-role');
   const sub = state.submarines[team];
   if (!sub.confirmedRoles.includes(role)) sub.confirmedRoles.push(role);
   const events = [{ scope: 'room', event: 'role-confirmed', payload: { team, role } }];
@@ -253,6 +256,7 @@ function fireTorpedo(state, team, target) {
   if (!isWater(target.x, target.y)) return reject('fire-torpedo', 'target-island');
   const dist = bfsWaterDistance(sub.position, target);
   if (dist < 1 || dist > TORPEDO_RANGE) return reject('fire-torpedo', 'out-of-range');
+  target = { x: target.x, y: target.y }; // announced to the room: the cell, nothing else sent
 
   sub.systems.torpedo = 0;
   const results = resolveBlast(state, target);
@@ -289,6 +293,7 @@ function detonateMine(state, team, target) {
   const sub = state.submarines[team];
   const idx = sub.mines.findIndex((m) => m.x === target.x && m.y === target.y);
   if (idx === -1) return reject('detonate-mine', 'no-mine');
+  target = { ...sub.mines[idx] }; // announced to the room: the mine's own cell
   sub.mines.splice(idx, 1);
   const results = resolveBlast(state, target);
   const events = [{ scope: 'room', event: 'mine-exploded', payload: { team, origin: target, results } }];
@@ -329,6 +334,9 @@ const factIsTrue = (sub, fact) => {
   return false;
 };
 
+const FACT_TYPES = ['row', 'col', 'sector'];
+const isFact = (f) => Boolean(f) && FACT_TYPES.includes(f.type) && Number.isInteger(f.value);
+
 // The responding (enemy) team answers a pending sonar with two facts: exactly one true, one false,
 // of two different types. `facts` may come from a human responder or from autoSonarFacts().
 function resolveSonar(state, respondingTeam, facts, opts = {}) {
@@ -336,7 +344,11 @@ function resolveSonar(state, respondingTeam, facts, opts = {}) {
   const sub = state.submarines[respondingTeam];
   if (!sub.pendingSonar) return reject('sonar-response', 'no-pending');
   if (!Array.isArray(facts) || facts.length !== 2) return reject('sonar-response', 'need-two-facts');
-  if (!facts[0] || !facts[1] || facts[0].type === facts[1].type) return reject('sonar-response', 'same-type');
+  // Each fact is a row, column or sector number. The pair is passed on to the asking team, so
+  // only those two fields go: never whatever else the responder's client put in.
+  if (!facts.every(isFact)) return reject('sonar-response', 'bad-fact');
+  facts = facts.map((f) => ({ type: f.type, value: f.value }));
+  if (facts[0].type === facts[1].type) return reject('sonar-response', 'same-type');
   const trueCount = facts.filter((f) => factIsTrue(sub, f)).length;
   if (trueCount !== 1) return reject('sonar-response', 'need-one-true-one-false');
 

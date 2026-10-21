@@ -11,6 +11,12 @@ const gameStates = new Map();
 
 const roomName = (code) => `game:${code}`;
 
+// What a client may name: the stations a player picks (captain plus the crew, which are also
+// the ones automation can run) and the systems the automated first mate charges. A list from
+// the client keeps only these, each once, in its order; anything but an array gives null.
+const ROLE_IDS = ['captain', ...REQUIRED_ROLES];
+const pickFrom = (list, allowed) => (Array.isArray(list) ? [...new Set(list.filter((x) => allowed.includes(x)))] : null);
+
 // Create or reuse a playable state, preserving automation/priority set in the lobby.
 function ensurePlayableState(gameCode, mode = 'turn-based', sameRoom = false) {
   let state = gameStates.get(gameCode);
@@ -295,10 +301,11 @@ function setupGameSockets(io) {
       io.to(room).emit('team-updated', { userId: socket.userId, username: socket.username, team });
     });
 
-    on('select-roles', async ({ gameCode, roles }) => {
+    on('select-roles', async ({ gameCode, roles: picked }) => {
       const room = roomName(gameCode);
       if (!joined(gameCode)) return;
-      if (!Array.isArray(roles)) return;
+      const roles = pickFrom(picked, ROLE_IDS);
+      if (!roles) return;
       const gameResult = await db.query('SELECT id, status FROM games WHERE code = $1', [gameCode]);
       if (gameResult.rows.length === 0) return;
       if (gameResult.rows[0].status !== 'lobby') return; // role assignment is a lobby action
@@ -311,10 +318,12 @@ function setupGameSockets(io) {
       io.to(room).emit('roles-updated', { userId: socket.userId, username: socket.username, roles });
     });
 
-    on('set-automated-roles', async ({ gameCode, team, automatedRoles }) => {
+    on('set-automated-roles', async ({ gameCode, team, automatedRoles: picked }) => {
       const room = roomName(gameCode);
       if (team !== 'alpha' && team !== 'bravo') return;
       if (teamIn(gameCode) !== team) return; // only configure your own team, in your own game
+      const automatedRoles = pickFrom(picked, REQUIRED_ROLES); // the captain is never automated
+      if (!automatedRoles) return;
       let state = gameStates.get(gameCode);
       if (!state) { state = { automatedRoles: {}, systemPriority: {} }; gameStates.set(gameCode, state); }
       if (!state.automatedRoles) state.automatedRoles = {};
@@ -323,9 +332,11 @@ function setupGameSockets(io) {
       io.to(room).emit('automated-roles-updated', { team, automatedRoles });
     });
 
-    on('set-system-priority', async ({ gameCode, team, systemPriority }) => {
+    on('set-system-priority', async ({ gameCode, team, systemPriority: picked }) => {
       if (team !== 'alpha' && team !== 'bravo') return;
       if (teamIn(gameCode) !== team) return; // only configure your own team, in your own game
+      const systemPriority = pickFrom(picked, DEFAULT_PRIORITY);
+      if (!systemPriority) return;
       let state = gameStates.get(gameCode);
       if (!state) { state = { systemPriority: {} }; gameStates.set(gameCode, state); }
       if (!state.systemPriority) state.systemPriority = {};
