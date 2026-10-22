@@ -29,9 +29,11 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 5000;
 
-// Trust the Railway proxy so req.protocol reflects the public https scheme (used to build
-// the OAuth redirect_uri) and secure cookies are honored.
-app.set('trust proxy', true);
+// Trust Railway's edge, and only it (one hop), so req.protocol reflects the public https
+// scheme (used to build the OAuth redirect_uri), secure cookies are honored, and req.ip is
+// the address the edge saw: the last X-Forwarded-For entry. `true` would take the first,
+// which the client writes itself, and the sign-in limit in routes/auth.js counts req.ip.
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(helmet({

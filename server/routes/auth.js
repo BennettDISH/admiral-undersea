@@ -10,6 +10,42 @@ const router = express.Router();
 
 const STATE_COOKIE = 'au_oauth_state';
 
+// Attempts counted per key (a name or an address) over a sliding window, in memory and per
+// process. Once `allowed` are recent, the key waits until the oldest leaves the window.
+function attemptLimit(allowed, windowMs) {
+  const times = new Map(); // key -> times of recent attempts
+  const recent = (key, now = Date.now()) => {
+    const kept = (times.get(key) || []).filter((t) => now - t < windowMs);
+    if (kept.length) times.set(key, kept);
+    else times.delete(key);
+    return kept;
+  };
+  return {
+    // Seconds before the key may try again; 0 means now.
+    waitSeconds(key) {
+      const kept = recent(key);
+      if (kept.length < allowed) return 0;
+      return Math.max(1, Math.ceil((kept[kept.length - allowed] + windowMs - Date.now()) / 1000));
+    },
+    note(key) {
+      if (times.size > 1000) for (const k of [...times.keys()]) recent(k);
+      times.set(key, [...recent(key), Date.now()]);
+    },
+    clear(key) {
+      times.delete(key);
+    },
+  };
+}
+
+// The old local sign-in (the ?local form) checks passwords here, and with SSO on at Waypoint,
+// which only ever sees this server's address. 10 wrong passwords for one name (username or
+// email) in 15 minutes make that name wait, and 30 from one address make the address wait.
+// The address is req.ip, which with `trust proxy` 1 (index.js) is the one Railway's edge saw,
+// not one the client wrote into X-Forwarded-For.
+const WRONG_PASSWORD_WINDOW_MS = 15 * 60 * 1000;
+const wrongPasswordsByName = attemptLimit(10, WRONG_PASSWORD_WINDOW_MS);
+const wrongPasswordsByAddress = attemptLimit(30, WRONG_PASSWORD_WINDOW_MS);
+
 // Absolute base URL of this app — prefer an explicit env (exact match to the registered
 // redirect_uri), else the request origin (correct in prod with trust proxy set).
 const baseUrl = (req) => (process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
@@ -177,6 +213,18 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'Username and password are required' });
   }
 
+  const name = String(username).trim().toLowerCase();
+  const wait = Math.max(wrongPasswordsByName.waitSeconds(name), wrongPasswordsByAddress.waitSeconds(req.ip));
+  if (wait) {
+    res.set('Retry-After', String(wait));
+    return res.status(429).json({ error: 'Too many wrong passwords. Try again in a few minutes.' });
+  }
+  const wrongPassword = () => {
+    wrongPasswordsByName.note(name);
+    wrongPasswordsByAddress.note(req.ip);
+    return res.status(401).json({ error: 'Invalid credentials' });
+  };
+
   try {
     // Try central login first if SSO enabled
     if (SSO_ENABLED) {
@@ -186,6 +234,7 @@ router.post('/login', async (req, res) => {
         // Gate on the central id, not the email — central accounts may have no email.
         if (central.central_user_id != null) {
           const localUser = await findOrCreateLocalUser(central);
+          wrongPasswordsByName.clear(name);
           return res.json({ success: true, token: signToken(localUser), user: localUser });
         }
       } catch (err) {
@@ -199,16 +248,17 @@ router.post('/login', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return wrongPassword();
     }
 
     const user = result.rows[0];
     const validPassword = await bcrypt.compare(password, user.password_hash);
 
     if (!validPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return wrongPassword();
     }
 
+    wrongPasswordsByName.clear(name);
     delete user.password_hash;
 
     res.json({
