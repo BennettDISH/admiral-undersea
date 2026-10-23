@@ -368,3 +368,101 @@ test('blasts announce the cell and nothing else the client sent', () => {
   const boom = E.detonateMine(s, 'alpha', { x: 5, y: 6, junk: 'x'.repeat(500) });
   assert.deepStrictEqual(find(boom.events, 'mine-exploded').payload.origin, { x: 5, y: 6 });
 });
+
+// ---------------------------------------------------------------- broken systems (server enforces what the client greys out)
+const fullCharge = (s, team) => Object.assign(s.submarines[team].systems, { torpedo: 3, mine: 3, drone: 4, sonar: 3, silence: 6 });
+
+test('a system with a marked breakdown cannot be used, whatever the client sends', () => {
+  // [system, a slot wired to it, call under test, action name]
+  const cases = [
+    ['torpedo', 's2', (s) => E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }), 'fire-torpedo'],
+    ['mine', 'n2', (s) => E.placeMine(s, 'alpha', { x: 6, y: 5 }), 'place-mine'],
+    ['drone', 'w1', (s) => E.launchDrone(s, 'alpha', 1), 'launch-drone'],
+    ['sonar', 'e1', (s) => E.useSonar(s, 'alpha'), 'use-sonar'],
+    ['silence', 'w3', (s) => E.applySilence(s, 'alpha', 'E', 2), 'use-silence'],
+  ];
+  for (const [system, slotId, call, action] of cases) {
+    const s = game();
+    place(s, 'alpha', 5, 5, { damage: [{ slotId }] });
+    place(s, 'bravo', 9, 9);
+    fullCharge(s, 'alpha');
+    const charged = s.submarines.alpha.systems[system];
+    const r = call(s);
+    assert.strictEqual(r.ok, false, `${system} should be refused`);
+    assert.strictEqual(r.error.action, action);
+    assert.strictEqual(r.error.reason, 'system-down', system);
+    assert.deepStrictEqual(r.events, []);
+    // Nothing was spent or moved.
+    assert.strictEqual(s.submarines.alpha.systems[system], charged, `${system} charge kept`);
+    assert.deepStrictEqual(s.submarines.alpha.position, { x: 5, y: 5 });
+    assert.deepStrictEqual(s.submarines.alpha.mines, []);
+    assert.strictEqual(s.submarines.bravo.pendingSonar, null);
+    assert.strictEqual(s.submarines.bravo.health, 4);
+  }
+});
+
+test('any one wired slot takes the system down, and other systems keep working', () => {
+  // e3 is a torpedo slot (east), n2 a mine slot: torpedo is down, drone/sonar/silence/mine are not.
+  const s = game();
+  place(s, 'alpha', 5, 5, { damage: [{ slotId: 'e3' }] });
+  place(s, 'bravo', 9, 9);
+  fullCharge(s, 'alpha');
+  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).error.reason, 'system-down');
+  assert.ok(E.launchDrone(s, 'alpha', 1).ok);
+  assert.ok(E.placeMine(s, 'alpha', { x: 6, y: 5 }).ok);
+  assert.ok(E.useSonar(s, 'alpha').ok);
+  assert.ok(E.applySilence(s, 'alpha', 'N', 1).ok);
+});
+
+test('an uncharged system that is also down reports the breakdown, a healthy one still reports not-charged', () => {
+  const s = game();
+  place(s, 'alpha', 5, 5, { damage: [{ slotId: 'n1' }] }); // torpedo slot
+  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).error.reason, 'system-down');
+  assert.strictEqual(E.launchDrone(s, 'alpha', 1).error.reason, 'not-charged');
+});
+
+test('a repaired system fires again (circuit clears the breakdown)', () => {
+  const s = game();
+  place(s, 'alpha', 5, 5, { damage: [{ slotId: 'n1' }, { slotId: 's1' }, { slotId: 'e1' }] });
+  fullCharge(s, 'alpha');
+  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).error.reason, 'system-down');
+  // The fourth circuit A slot completes the circuit and clears all four, torpedo's n1 included.
+  assert.ok(E.markBreakdown(s, 'alpha', 'W', 'w1', 'alpha').ok);
+  assert.deepStrictEqual(s.submarines.alpha.damage, []);
+  place(s, 'bravo', 9, 9);
+  assert.ok(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).ok);
+});
+
+test('surfacing clears breakdowns, so a surfaced sub is refused for being surfaced', () => {
+  const s = game();
+  place(s, 'alpha', 5, 5, { damage: [{ slotId: 'n1' }] });
+  fullCharge(s, 'alpha');
+  E.surface(s, 'alpha');
+  assert.deepStrictEqual(s.submarines.alpha.damage, []);
+  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).error.reason, 'surfaced');
+});
+
+test('mine detonation is refused while surfaced and the mine stays laid', () => {
+  const s = game();
+  place(s, 'alpha', 5, 5, { mines: [{ x: 6, y: 5 }] });
+  place(s, 'bravo', 6, 5);
+  E.surface(s, 'alpha');
+  const r = E.detonateMine(s, 'alpha', { x: 6, y: 5 });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.error.reason, 'surfaced');
+  assert.deepStrictEqual(s.submarines.alpha.mines, [{ x: 6, y: 5 }]);
+  assert.strictEqual(s.submarines.bravo.health, 4);
+
+  E.resurface(s, 'alpha');
+  assert.ok(E.detonateMine(s, 'alpha', { x: 6, y: 5 }).ok);
+  assert.strictEqual(s.submarines.bravo.health, 2);
+});
+
+test('a broken mine system does not stop detonating a mine already laid (the client allows it)', () => {
+  const s = game();
+  place(s, 'alpha', 5, 5, { mines: [{ x: 6, y: 5 }], damage: [{ slotId: 'n2' }] }); // n2 is a mine slot
+  place(s, 'bravo', 6, 5);
+  const r = E.detonateMine(s, 'alpha', { x: 6, y: 5 });
+  assert.ok(r.ok);
+  assert.strictEqual(s.submarines.bravo.health, 2);
+});

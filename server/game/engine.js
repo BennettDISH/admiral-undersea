@@ -83,6 +83,12 @@ function legalMoves(state, team) {
   return DIRECTIONS.filter((d) => moveLegality(state, team, d).ok);
 }
 
+// A system is offline while any engineer slot wired to it carries a marked breakdown.
+// The client greys out USE/PING on the same test (Game.jsx isSystemBlocked).
+const isSystemBlocked = (sub, system) => ENGINEER_SLOTS.some(
+  (slot) => slot.system === system && sub.damage.some((d) => d.slotId === slot.id),
+);
+
 // ---- combat ---------------------------------------------------------------
 // Apply a detonation at `origin` to BOTH subs (self-damage possible). Mutates health.
 function resolveBlast(state, origin) {
@@ -252,6 +258,7 @@ function fireTorpedo(state, team, target) {
   if (state.gameOver) return reject('fire-torpedo', 'game-over');
   const sub = state.submarines[team];
   if (sub.surfaced) return reject('fire-torpedo', 'surfaced');
+  if (isSystemBlocked(sub, 'torpedo')) return reject('fire-torpedo', 'system-down');
   if (sub.systems.torpedo < getSystemMax('torpedo')) return reject('fire-torpedo', 'not-charged');
   if (!isWater(target.x, target.y)) return reject('fire-torpedo', 'target-island');
   const dist = bfsWaterDistance(sub.position, target);
@@ -277,6 +284,7 @@ function placeMine(state, team, target) {
   if (state.gameOver) return reject('place-mine', 'game-over');
   const sub = state.submarines[team];
   if (sub.surfaced) return reject('place-mine', 'surfaced');
+  if (isSystemBlocked(sub, 'mine')) return reject('place-mine', 'system-down');
   if (sub.systems.mine < getSystemMax('mine')) return reject('place-mine', 'not-charged');
   if (!isWater(target.x, target.y)) return reject('place-mine', 'target-island');
   if (manhattan(sub.position, target) !== MINE_RANGE) return reject('place-mine', 'not-adjacent');
@@ -291,6 +299,8 @@ function placeMine(state, team, target) {
 function detonateMine(state, team, target) {
   if (state.gameOver) return reject('detonate-mine', 'game-over');
   const sub = state.submarines[team];
+  // The client disables Detonate while surfaced, and only then: a broken mine system does not stop it.
+  if (sub.surfaced) return reject('detonate-mine', 'surfaced');
   const idx = sub.mines.findIndex((m) => m.x === target.x && m.y === target.y);
   if (idx === -1) return reject('detonate-mine', 'no-mine');
   target = { ...sub.mines[idx] }; // announced to the room: the mine's own cell
@@ -306,6 +316,7 @@ function launchDrone(state, team, sector) {
   if (state.gameOver) return reject('launch-drone', 'game-over');
   const sub = state.submarines[team];
   if (sub.surfaced) return reject('launch-drone', 'surfaced');
+  if (isSystemBlocked(sub, 'drone')) return reject('launch-drone', 'system-down');
   if (sub.systems.drone < getSystemMax('drone')) return reject('launch-drone', 'not-charged');
   if (!Number.isInteger(sector) || sector < 1 || sector > MAX_SECTOR) return reject('launch-drone', 'bad-sector');
   sub.systems.drone = 0;
@@ -318,6 +329,7 @@ function useSonar(state, team) {
   if (state.gameOver) return reject('use-sonar', 'game-over');
   const sub = state.submarines[team];
   if (sub.surfaced) return reject('use-sonar', 'surfaced');
+  if (isSystemBlocked(sub, 'sonar')) return reject('use-sonar', 'system-down');
   if (sub.systems.sonar < getSystemMax('sonar')) return reject('use-sonar', 'not-charged');
   const enemyTeam = enemyOf(team);
   const enemy = state.submarines[enemyTeam];
@@ -376,6 +388,7 @@ function applySilence(state, team, direction, distance) {
   if (state.gameOver) return reject('use-silence', 'game-over');
   const sub = state.submarines[team];
   if (sub.surfaced) return reject('use-silence', 'surfaced');
+  if (isSystemBlocked(sub, 'silence')) return reject('use-silence', 'system-down');
   if (sub.systems.silence < getSystemMax('silence')) return reject('use-silence', 'not-charged');
   if (!DIRECTIONS.includes(direction)) return reject('use-silence', 'bad-direction');
   if (!Number.isInteger(distance) || distance < 0 || distance > SILENCE_RANGE) return reject('use-silence', 'bad-distance');
