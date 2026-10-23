@@ -8,7 +8,9 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-const STATE_COOKIE = 'au_oauth_state';
+// __Host- keeps a sibling *.bennettdishman.com page from planting a Domain-wide cookie of the
+// same name. The prefix needs Secure, path / and no Domain; browsers accept Secure on localhost.
+const STATE_COOKIE = '__Host-au_oauth_state';
 
 // Attempts counted per key (a name or an address) over a sliding window, in memory and per
 // process. Once `allowed` are recent, the key waits until the oldest leaves the window.
@@ -52,7 +54,7 @@ const baseUrl = (req) => (process.env.APP_BASE_URL || `${req.protocol}://${req.g
 
 const stateCookieOpts = () => ({
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: true,
   sameSite: 'lax',
   path: '/',
 });

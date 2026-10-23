@@ -53,14 +53,14 @@ test.beforeEach(() => { exchanged.length = 0; });
 async function start(query = '') {
   const res = await fetch(`${base}/sso/login${query}`, { redirect: 'manual' });
   const setCookie = res.headers.get('set-cookie') || '';
-  const cookie = /au_oauth_state=([^;]*)/.exec(setCookie)?.[1] || null;
+  const cookie = /__Host-au_oauth_state=([^;]*)/.exec(setCookie)?.[1] || null;
   return { status: res.status, url: new URL(res.headers.get('location')), cookie, setCookie };
 }
 
 const callback = async (body, cookie) => {
   const res = await fetch(`${base}/sso-callback`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: `au_oauth_state=${cookie}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: `__Host-au_oauth_state=${cookie}` } : {}) },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json(), setCookie: res.headers.get('set-cookie') || '' };
@@ -106,7 +106,7 @@ test('the matching state turns the code into a session, and the cookie is spent'
   assert.strictEqual(res.body.user.username, 'captain');
   assert.deepStrictEqual(exchanged, ['code-good']);
   // The answer clears the cookie, so the same state can't be used twice.
-  assert.match(res.setCookie, /au_oauth_state=;/);
+  assert.match(res.setCookie, /__Host-au_oauth_state=;.*Secure/i);
 });
 
 test('a code Waypoint refuses makes no session', async () => {
