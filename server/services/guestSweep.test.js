@@ -1,8 +1,20 @@
 // The guest sweep (services/guestSweep.js) against the real schema, in an in-process PGlite.
 // What it may take is exactly an idle guest and what only guests had a part in: every other
 // row in every table is compared, before and after, and must be there unchanged.
-const { test, before } = require('node:test');
+const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
+const { startWaypoint } = require('./fakeWaypoint');
+const { checkGuests } = require('./guestCheck');
+
+// Waypoint is a stand-in (fakeWaypoint.js) that, unless a test says otherwise, calls every idle guest
+// an unclaimed guest.
+let waypoint;
+before(async () => {
+  waypoint = await startWaypoint();
+  Object.assign(process.env, waypoint.env());
+});
+after(() => waypoint.close());
+beforeEach(() => waypoint.reset());
 
 process.env.USE_PGLITE = '1';
 process.env.JWT_SECRET = 'sweep-test-secret';
@@ -165,4 +177,137 @@ test('a failed run is logged, never thrown', async (t) => {
   const r = await runGuestSweep({ db: { connect: async () => { throw new Error('database down'); } } });
   assert.deepEqual(r, { failed: 'database down' });
   assert.match(String(logged.mock.calls[0].arguments.join(' ')), /Guest sweep failed .*database down/);
+});
+
+
+// What the Waypoint tests need of this app's schema.
+const sweep = (extra) => sweepGuests({ db, days: 30, ...extra });
+const USERS_T = 'users';
+const ID_COL = 'id';
+/** An idle guest (40 days) that made a game of its own. */
+async function idleWithOwn() {
+  const guest = await profile({ guest: true, days: 40 });
+  const own = await game(guest);
+  return { guest, uid: guest.id, central: guest.central_user_id, own };
+}
+const ownGone = async (g) => !(await one('SELECT 1 FROM games WHERE id = $1', [g.id]));
+const guestGone = async (id) => !(await one('SELECT 1 FROM users WHERE id = $1', [id]));
+/** A guest here is told by its name, so there is no flag to clear: a claimed guest's row is untouched. */
+const accountsKept = async () => {};
+
+// Waypoint's word decides who may go (guestCheck.js): the stand-in answers per central id.
+
+/** Takes whatever idle guests earlier tests left, with the stand-in at its default. */
+async function settle() {
+  waypoint.reset();
+  await sweep();
+  waypoint.reset();
+}
+
+test('a guest who claimed on Waypoint stays; one Waypoint has forgotten goes', async () => {
+  await settle();
+  const claimed = await idleWithOwn();
+  const forgotten = await idleWithOwn();
+  const plain = await idleWithOwn();
+  waypoint.set({ claimed: [claimed.central], gone: [forgotten.central] });
+  const was = await everything();
+  const r = await sweep();
+  const now = await everything();
+  await accountsKept(was, now, [claimed]);
+  const went = gone(was, now);
+  assert.deepEqual(ids(went[USERS_T], ID_COL), sorted([forgotten.uid, plain.uid]));
+  assert.equal(await ownGone(claimed.own), false, 'a claimed account keeps what it made');
+  assert.equal(await ownGone(forgotten.own), true);
+  assert.equal(await ownGone(plain.own), true);
+  assert.equal(r.claimed, 1);
+  assert.equal(r.removed, 2);
+  assert.equal(waypoint.requests.length, 1);
+  for (const x of [claimed, forgotten, plain]) assert.ok(waypoint.requests[0].ids.includes(Number(x.central)), 'every idle guest was asked about');
+});
+
+test('a guest Waypoint does not link to this app stays, with what it made, and is logged', async (t) => {
+  await settle();
+  const logged = t.mock.method(console, 'error', () => {});
+  const stranger = await idleWithOwn();
+  const plain = await idleWithOwn();
+  waypoint.set({ unknown: [stranger.central] });
+  const was = await everything();
+  const r = await sweep();
+  assert.deepEqual(ids(gone(was, await everything())[USERS_T], ID_COL), [plain.uid]);
+  assert.equal(await ownGone(stranger.own), false);
+  assert.equal(r.unknown, 1);
+  assert.match(logged.mock.calls.map((c) => c.arguments.join(' ')).join('\n'), new RegExp(`does not link them to this app: ${stranger.central}`));
+});
+
+test('a guest nobody asked about is never taken: only cleared guests count as idle', async () => {
+  await settle();
+  const asked = await idleWithOwn();
+  const late = await idleWithOwn();
+  // Waypoint is asked about `asked` only, as if `late` had become idle after the question
+  const check = (list) => checkGuests(list.filter((c) => String(c) !== String(late.central)));
+  const was = await everything();
+  await sweep({ check });
+  assert.deepEqual(ids(gone(was, await everything())[USERS_T], ID_COL), [asked.uid]);
+  assert.equal(await ownGone(late.own), false);
+});
+
+for (const [what, set] of [
+  ['an error', (w) => { w.status = 500; }],
+  ['a wrong secret', (w) => { w.status = 401; }],
+  ['an endpoint that is not deployed yet (404)', (w) => { w.status = 404; }],
+]) {
+  test(`${what} from Waypoint means nobody is deleted, whoever is idle`, async (t) => {
+    await settle();
+    const logged = t.mock.method(console, 'error', () => {});
+    const a = await idleWithOwn();
+    const b = await idleWithOwn();
+    set(waypoint);
+    const was = await everything();
+    const r = await runGuestSweep({ db, days: 30 });
+    assert.deepEqual(gone(was, await everything()), {});
+    assert.equal(r.removed, 0);
+    assert.ok(r.held && r.stale >= 2);
+    assert.match(logged.mock.calls.map((c) => c.arguments.join(' ')).join('\n'), /Guest sweep paused, nobody removed/);
+    // the next day Waypoint answers, and they go
+    waypoint.reset();
+    const next = await runGuestSweep({ db, days: 30 });
+    assert.ok(next.removed >= 2);
+    assert.equal(await guestGone(a.uid), true);
+    assert.equal(await guestGone(b.uid), true);
+  });
+}
+
+test('no answer in time, an unreachable Waypoint and no configuration mean nobody is deleted', async () => {
+  await settle();
+  await idleWithOwn();
+  const was = await everything();
+  waypoint.delay = 300;
+  const slow = await sweep({ check: (list) => checkGuests(list, { timeoutMs: 40 }) });
+  assert.match(slow.held, /did not answer/);
+  const off = await sweep({ check: (list) => checkGuests(list, { env: {} }) });
+  assert.match(off.held, /not configured/);
+  const dead = await startWaypoint();
+  const env = dead.env();
+  await dead.close();
+  const down = await sweep({ check: (list) => checkGuests(list, { env }) });
+  assert.match(down.held, /could not be reached/);
+  assert.deepEqual(gone(was, await everything()), {});
+});
+
+test('a dry run asks but changes nothing, even for a claimed guest', async () => {
+  await settle();
+  const claimed = await idleWithOwn();
+  waypoint.set({ claimed: [claimed.central] });
+  const was = await everything();
+  const r = await sweep({ dryRun: true });
+  assert.equal(r.removed, 0);
+  assert.equal(r.claimed, 1);
+  assert.deepEqual(gone(was, await everything()), {});
+});
+
+test('the clearing table does not outlive a run', async () => {
+  await settle();
+  await idleWithOwn();
+  await sweep();
+  assert.equal((await one(`SELECT to_regclass('guest_clear')::text AS t`)).t, null);
 });

@@ -68,7 +68,7 @@ Admin: `/admin`, Waypoint id 1 only (`ADMIN_CENTRAL_USER_IDS=1`). Signed out goe
 - `server/sockets/game.js` — thin socket.io adapter over the engine; `rateLimit.js` caps events per socket. It plays from memory and writes each match to Postgres a moment after it changes.
 - `server/routes/` — `auth.js`, `games.js`, `admin.js` (look-only admin views: users, games, and the environment switches shown on or off), `health.js` (`GET /api/health`: a `SELECT 1` with a 3 s timeout, 200 or 503, no database text); `server/middleware/` — session and admin checks.
 - `server/services/matchStore.js` — the `game_matches` table: a match (or the lobby's automated-roles setup) saved so a deploy does not wipe it. `join-game` reads it back, timers and automated crew pick up where they were, and a finished game's match is dropped a day after game-over, any other after 7 days unchanged (swept hourly).
-- `server/services/guestSweep.js` — removes guests idle for 30 days.
+- `server/services/guestSweep.js`, `guestCheck.js` — removes guests idle for 30 days, after asking Waypoint (`POST /api/auth/proxy/guests`) which of them may go: a guest that claimed its account stays, and nobody is removed while Waypoint cannot answer.
 - `database/` — schema.
 
 ## Deploy
