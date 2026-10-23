@@ -418,23 +418,28 @@ function Game({ user }) {
           <div className="captain-panel">
             <h2>Captain's Controls <RoleHelp role="captain" /></h2>
             {targeting && (
-              <div className="targeting-hint">
-                {targeting === 'torpedo' && '🎯 Select a target cell (within range).'}
-                {targeting === 'mine' && '◆ Select an adjacent cell to drop a mine.'}
-                {targeting === 'silence' && '🤫 Select a cell to move to silently (0–4 straight).'}
-                {targeting === 'drone' && '📡 Click a sector to scan.'}
+              <div className="targeting-hint" role="status">
+                <span>
+                  {targeting === 'torpedo' && '🎯 Select a target cell (within range).'}
+                  {targeting === 'mine' && '◆ Select an adjacent cell to drop a mine.'}
+                  {targeting === 'silence' && '🤫 Select a cell to move to silently (0–4 straight).'}
+                  {targeting === 'drone' && '📡 Click a sector (any cell in it) to scan.'}
+                  {' '}<span className="targeting-keys">On the keyboard: arrow keys move, Enter picks, Esc cancels.</span>
+                </span>
                 <button className="cancel-target" onClick={() => setTargeting(null)}>Cancel</button>
               </div>
             )}
             <div className="captain-layout">
               <div className="captain-left">
                 <MapBoard
+                  ariaLabel="Captain's map"
                   submarine={mySub}
                   mines={mySub?.mines || []}
                   overlay={targeting === 'drone' ? 'drone-sector' : targeting || 'none'}
                   legalCells={activeTargetCells}
                   onCellClick={handleTargetCell}
                   onSectorClick={handleSector}
+                  onCancel={() => setTargeting(null)}
                 />
                 <div className="movement-controls">
                   <button onClick={() => handleMove('N')} disabled={moveBlocked || !legalMoves.includes('N')}>⬆️ N</button>
@@ -692,6 +697,7 @@ function Game({ user }) {
 
             <MapBoard
               small
+              ariaLabel="Radio map"
               overlay="radio"
               onCellClick={handleRadioCell}
               candidates={candidates}
@@ -725,7 +731,7 @@ function Game({ user }) {
                 <button className={radioPlacing === 'annotate' ? 'active' : ''} onClick={() => setRadioPlacing('annotate')}>Mark cells</button>
                 <button onClick={() => { setGhostStart(null); setAnnotations([]) }}>Clear</button>
               </div>
-              <p className="hunch-hint">Click a cell on the map to guess where the enemy <em>started</em>; it traces their path from there. Impossible guesses (into land, off-grid, or crossing themselves) are flagged.</p>
+              <p className="hunch-hint">Click a cell on the map (or move to it with the arrow keys and press Enter) to guess where the enemy <em>started</em>; it traces their path from there. Impossible guesses (into land, off-grid, or crossing themselves) are flagged.</p>
               {ghost && (
                 <div className={`ghost-status ${ghost.valid ? 'valid' : 'invalid'}`}>
                   {ghost.valid ? (ghost.uncertain ? 'Valid so far (enemy went silent — path uncertain from here)' : `Valid — from there the enemy would now be at (${ghost.path.at(-1)?.x}, ${ghost.path.at(-1)?.y})`) : 'Impossible — that path hits land, the edge, or crosses itself'}

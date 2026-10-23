@@ -1563,7 +1563,17 @@ button {
   &.ghost-start { background: rgba(255, 235, 59, 0.4); }
   &.annotated { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7); }
   &.enemy-sector { background: rgba(244, 67, 54, 0.25); }
+
+  // The keyboard cursor (MapBoard is a grid with one tab stop). :focus-visible, so a click
+  // leaves no ring; an outline, since the cell states above already use box-shadow.
+  &:focus { outline: none; }
+  &:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -2px;
+    z-index: 1;
+  }
 }
+.sonar-scope.small .map-cell:focus-visible { outline-width: 4px; } // the small board is drawn at 44%
 
 .game-map.selecting {
   cursor: crosshair;
@@ -1586,6 +1596,7 @@ button {
   gap: 0.5rem;
 
   .cancel-target { width: auto; padding: 0.2rem 0.6rem; font-size: 0.75rem; background: rgba(255,255,255,0.15); }
+  .targeting-keys { display: block; margin-top: 0.15rem; font-size: 0.75rem; opacity: 0.75; }
 }
 
 .cooldown-timer {
