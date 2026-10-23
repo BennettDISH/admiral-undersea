@@ -94,6 +94,25 @@ test('/me says who is an admin without opening anything', async () => {
   assert.strictEqual((await get('/me')).status, 401);
 });
 
+test('/switches is the admin\'s alone and shows on or off, never a value', async () => {
+  assert.strictEqual((await get('/switches')).status, 401);
+  assert.strictEqual((await get('/switches', player)).status, 403);
+  assert.strictEqual((await get('/switches', localOnly)).status, 403);
+  delete process.env.ADMIN_CENTRAL_USER_IDS;
+  assert.strictEqual((await get('/switches', admin)).status, 403, 'fails closed with the list unset');
+  process.env.ADMIN_CENTRAL_USER_IDS = ` ${ADMIN_CENTRAL}, 77 `;
+
+  const r = await get('/switches', admin);
+  assert.strictEqual(r.status, 200);
+  const names = r.body.switches.map((s) => s.name);
+  assert.deepStrictEqual(names, ['Waypoint sign-in', 'Guest sweep']);
+  for (const s of r.body.switches) {
+    assert.strictEqual(typeof s.on, 'boolean', s.name);
+    assert.deepStrictEqual(Object.keys(s).filter((k) => !['name', 'env', 'on', 'note'].includes(k)), [], s.name);
+  }
+  assert.ok(!r.text.includes('admin-test-secret'), 'no secret value is shown');
+});
+
 test('users page 50 at a time, newest first', async () => {
   const p1 = await get('/users', admin);
   assert.strictEqual(p1.body.total, 123);

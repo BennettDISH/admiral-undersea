@@ -289,11 +289,16 @@ async function runGuestSweep(options) {
   }
 }
 
+// Why the sweep is not running, or null when it is (the admin page shows this read-only).
+function guestSweepOff() {
+  return process.env.GUEST_CLEANUP_ENABLED === 'false' ? 'GUEST_CLEANUP_ENABLED=false' : OFF;
+}
+
 function scheduleGuestSweep() {
-  const off = process.env.GUEST_CLEANUP_ENABLED === 'false' ? 'GUEST_CLEANUP_ENABLED=false' : OFF;
+  const off = guestSweepOff();
   if (off) { console.log(`Guest sweep off (${off})`); return; }
   setTimeout(runGuestSweep, 60 * 1000).unref();
   setInterval(runGuestSweep, DAY_MS).unref();
 }
 
-module.exports = { sweepGuests, runGuestSweep, scheduleGuestSweep };
+module.exports = { sweepGuests, runGuestSweep, scheduleGuestSweep, guestSweepOff };

@@ -42,7 +42,8 @@ export const auth = {
 export const admin = {
   me: () => api.get('/admin/me'),
   users: (params) => api.get('/admin/users', { params }),
-  games: (params) => api.get('/admin/games', { params })
+  games: (params) => api.get('/admin/games', { params }),
+  switches: () => api.get('/admin/switches')
 }
 
 export default api

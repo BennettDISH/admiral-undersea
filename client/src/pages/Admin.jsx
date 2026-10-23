@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { admin } from '../services/api'
+import { adminGate, FORBIDDEN_TEXT } from '../lib/adminGate'
 
-// Look-only view of every account and game, for site admins. The server decides who that
-// is (ADMIN_CENTRAL_USER_IDS); everyone else gets "Admins only".
+// Look-only view of every account and game, for site admins, with the environment switches
+// shown on or off. The server decides who that is (ADMIN_CENTRAL_USER_IDS); everyone else
+// gets a plain "This page is for the site admin."
 
 const when = (t) => (t ? new Date(t).toLocaleString() : '—')
 
@@ -95,10 +97,57 @@ function GamesList({ games }) {
   )
 }
 
+function SwitchesTable({ switches }) {
+  return (
+    <div className="admin-table-wrap">
+      <table className="admin-table">
+        <thead>
+          <tr><th>Switch</th><th>State</th><th>Set by</th></tr>
+        </thead>
+        <tbody>
+          {switches.map((s) => (
+            <tr key={s.name}>
+              <td>{s.name}</td>
+              <td>{s.on ? 'on' : 'off'}{s.note ? ` (${s.note})` : ''}</td>
+              <td>{s.env}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// The page itself: nothing of the admin area renders until the server says this account is
+// the site admin.
 function Admin() {
   const navigate = useNavigate()
+  const [isAdmin, setIsAdmin] = useState(null)
+
+  useEffect(() => {
+    admin.me().then((res) => setIsAdmin(res.data.isAdmin === true)).catch(() => setIsAdmin(false))
+  }, [])
+
+  const gate = adminGate({ signedIn: true, isAdmin })
+  if (gate === 'show') return <AdminPanel />
+  return (
+    <div className="admin-page">
+      {gate === 'forbidden'
+        ? (
+          <>
+            <h1>{FORBIDDEN_TEXT}</h1>
+            <button className="logout-btn" onClick={() => navigate('/')}>Back</button>
+          </>
+        )
+        : <p className="admin-empty">Loading…</p>}
+    </div>
+  )
+}
+
+function AdminPanel() {
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const tab = params.get('tab') === 'games' ? 'games' : 'users'
+  const tab = ['games', 'switches'].includes(params.get('tab')) ? params.get('tab') : 'users'
   const q = params.get('q') || ''
   const page = Number(params.get('page')) || 1
   const status = params.get('status') || ''
@@ -119,13 +168,13 @@ function Admin() {
     const query = { q: q || undefined, page }
     const call = tab === 'games'
       ? admin.games({ ...query, status: status || undefined, user: user || undefined })
-      : admin.users(query)
+      : tab === 'switches' ? admin.switches() : admin.users(query)
     call
       .then((res) => { if (live) setData({ ...res.data, tab }) })
       .catch((err) => {
         if (!live) return
         setData(null)
-        setError(err.response?.status === 403 ? 'Admins only.' : (err.response?.data?.error || 'Could not load.'))
+        setError(err.response?.status === 403 ? FORBIDDEN_TEXT : (err.response?.data?.error || 'Could not load.'))
       })
       .finally(() => { if (live) setLoading(false) })
     return () => { live = false }
@@ -140,7 +189,7 @@ function Admin() {
     setParams(clean)
   }
 
-  const switchTab = (t) => setParams(t === 'games' ? { tab: 'games' } : {})
+  const switchTab = (t) => setParams(t === 'users' ? {} : { tab: t })
 
   return (
     <div className="admin-page">
@@ -153,9 +202,10 @@ function Admin() {
       <div className="admin-tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'users'} className={tab === 'users' ? 'selected' : ''} onClick={() => switchTab('users')}>Users</button>
         <button role="tab" aria-selected={tab === 'games'} className={tab === 'games' ? 'selected' : ''} onClick={() => switchTab('games')}>Games</button>
+        <button role="tab" aria-selected={tab === 'switches'} className={tab === 'switches' ? 'selected' : ''} onClick={() => switchTab('switches')}>Switches</button>
       </div>
 
-      <form className="admin-search" onSubmit={(e) => { e.preventDefault(); go({ q: draft.trim() }) }}>
+      {tab !== 'switches' && <form className="admin-search" onSubmit={(e) => { e.preventDefault(); go({ q: draft.trim() }) }}>
         <input
           type="search"
           value={draft}
@@ -173,7 +223,7 @@ function Admin() {
           </select>
         )}
         <button type="submit">Search</button>
-      </form>
+      </form>}
 
       {tab === 'games' && user && (
         <div className="admin-filter">
@@ -187,10 +237,12 @@ function Admin() {
 
       {data && data.tab === tab && (
         <>
-          {tab === 'users'
-            ? <UsersTable users={data.users || []} onGames={(u) => setParams({ tab: 'games', user: String(u.id), name: u.username })} />
-            : <GamesList games={data.games || []} />}
-          <Pager data={data} onPage={(p) => go({ page: p })} />
+          {tab === 'switches'
+            ? <SwitchesTable switches={data.switches || []} />
+            : tab === 'users'
+              ? <UsersTable users={data.users || []} onGames={(u) => setParams({ tab: 'games', user: String(u.id), name: u.username })} />
+              : <GamesList games={data.games || []} />}
+          {tab !== 'switches' && <Pager data={data} onPage={(p) => go({ page: p })} />}
         </>
       )}
     </div>

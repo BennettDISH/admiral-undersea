@@ -56,14 +56,17 @@ Test: `cd server && npm test` (the rules engine plus a socket integration test).
 
 Production: `npm run build` (builds client), then `npm start` (serves `client/dist` via `server/index.js`).
 
+## Admin
+Admin: `/admin`, Waypoint id 1 only (`ADMIN_CENTRAL_USER_IDS=1`). Signed out goes to sign-in and comes back; anyone else sees "This page is for the site admin."; every `/api/admin` route answers 403 to a non-admin.
+
 ## Layout
 - `shared/gameConstants.json` — board, sectors, systems, engineer circuits (single-sourced client+server).
-- `client/src/pages/` — Home, Login, Register, AuthCallback, CreateGame, JoinGame, Lobby, Game, Admin.
+- `client/src/pages/` — Home, Login, Register, AuthCallback, CreateGame, JoinGame, Lobby, Game, Admin (`/admin`; `client/src/lib/adminGate.js` decides what it shows).
 - `client/src/game/` — `MapBoard`, shared `constants.js`, `radio.js` (deduction), `EventLog`, `ToastHost`.
 - `client/src/components/TopBar.jsx` and `client/src/lib/` — the shared games top bar, Waypoint sign-in, joining a game's room.
 - `server/game/` — pure rules engine: `constants.js`, `map.js`, `engine.js` (+ `*.test.js`).
 - `server/sockets/game.js` — thin socket.io adapter over the engine; `rateLimit.js` caps events per socket. It plays from memory and writes each match to Postgres a moment after it changes.
-- `server/routes/` — `auth.js`, `games.js`, `admin.js` (look-only admin views), `health.js` (`GET /api/health`: a `SELECT 1` with a 3 s timeout, 200 or 503, no database text); `server/middleware/` — session and admin checks.
+- `server/routes/` — `auth.js`, `games.js`, `admin.js` (look-only admin views: users, games, and the environment switches shown on or off), `health.js` (`GET /api/health`: a `SELECT 1` with a 3 s timeout, 200 or 503, no database text); `server/middleware/` — session and admin checks.
 - `server/services/matchStore.js` — the `game_matches` table: a match (or the lobby's automated-roles setup) saved so a deploy does not wipe it. `join-game` reads it back, timers and automated crew pick up where they were, and a finished game's match is dropped a day after game-over, any other after 7 days unchanged (swept hourly).
 - `server/services/guestSweep.js` — removes guests idle for 30 days.
 - `database/` — schema.

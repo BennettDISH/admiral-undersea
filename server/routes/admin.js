@@ -2,6 +2,8 @@ const express = require('express');
 const db = require('../config/database');
 const { requireAuth } = require('../middleware/auth');
 const { requireAdmin, isAdmin } = require('../middleware/admin');
+const { SSO_ENABLED } = require('../config/sso');
+const { guestSweepOff } = require('../services/guestSweep');
 
 // Look-only admin views of every account and game. GET only: nothing here writes.
 const router = express.Router();
@@ -21,6 +23,18 @@ router.get('/me', async (req, res) => {
 });
 
 router.use(requireAdmin);
+
+// The switches that live in the server's environment, shown read-only: on or off, never a
+// value. Changing one is a Railway variable, not something this page does.
+router.get('/switches', (req, res) => {
+  const sweepOff = guestSweepOff();
+  res.json({
+    switches: [
+      { name: 'Waypoint sign-in', env: 'AUTH_SERVICE_URL, SSO_CLIENT_ID, SSO_CLIENT_SECRET', on: SSO_ENABLED },
+      { name: 'Guest sweep', env: 'GUEST_CLEANUP_ENABLED', on: !sweepOff, note: sweepOff || null }
+    ]
+  });
+});
 
 function pageOf(req) {
   const n = parseInt(req.query.page, 10);
