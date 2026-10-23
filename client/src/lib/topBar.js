@@ -1,6 +1,6 @@
 // The bar every game shares, so the games feel like one site. The arcade's address lives
-// here and nowhere else: it moves to https://bennettdishmanmedia.com/ later.
-export const ARCADE_URL = 'https://quickplay-arcade-production.up.railway.app/';
+// here and nowhere else.
+export const ARCADE_URL = 'https://games.bennettdishman.com/';
 
 // What the account chip says: the display name, "Guest" for a Waypoint guest, or "Sign in".
 // A game that keeps no guest flag still knows one by name: Waypoint keeps "guest-" for the
