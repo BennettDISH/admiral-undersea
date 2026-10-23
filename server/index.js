@@ -10,6 +10,7 @@ const path = require('path');
 const authRoutes = require('./routes/auth');
 const gameRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
+const { healthHandler } = require('./routes/health');
 const setupGameSockets = require('./sockets/game');
 const initDb = require('./config/initDb');
 const { corsOrigin } = require('./config/origin');
@@ -55,10 +56,8 @@ app.use('/api/admin', adminRoutes);
 // Setup game sockets
 const { flushMatches, sweepMatches } = setupGameSockets(io);
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+// Health check (Railway's healthcheck path): 200 only while Postgres answers a SELECT 1
+app.get('/api/health', healthHandler());
 
 // Serve static files from React build
 app.use(express.static(path.join(__dirname, '../client/dist')));

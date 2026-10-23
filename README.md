@@ -63,7 +63,7 @@ Production: `npm run build` (builds client), then `npm start` (serves `client/di
 - `client/src/components/TopBar.jsx` and `client/src/lib/` — the shared games top bar, Waypoint sign-in, joining a game's room.
 - `server/game/` — pure rules engine: `constants.js`, `map.js`, `engine.js` (+ `*.test.js`).
 - `server/sockets/game.js` — thin socket.io adapter over the engine; `rateLimit.js` caps events per socket. It plays from memory and writes each match to Postgres a moment after it changes.
-- `server/routes/` — `auth.js`, `games.js`, `admin.js` (look-only admin views); `server/middleware/` — session and admin checks.
+- `server/routes/` — `auth.js`, `games.js`, `admin.js` (look-only admin views), `health.js` (`GET /api/health`: a `SELECT 1` with a 3 s timeout, 200 or 503, no database text); `server/middleware/` — session and admin checks.
 - `server/services/matchStore.js` — the `game_matches` table: a match (or the lobby's automated-roles setup) saved so a deploy does not wipe it. `join-game` reads it back, timers and automated crew pick up where they were, and a finished game's match is dropped a day after game-over, any other after 7 days unchanged (swept hourly).
 - `server/services/guestSweep.js` — removes guests idle for 30 days.
 - `database/` — schema.
@@ -71,6 +71,11 @@ Production: `npm run build` (builds client), then `npm start` (serves `client/di
 ## Deploy
 Railway (project "Games", with the other games). The root `postinstall` installs both
 packages and builds the client; `npm start` then serves the API, sockets and the built client.
+
+Healthcheck: `GET /api/health` answers 200 `{status:'ok',db:'ok'}` while Postgres replies, and 503
+`{status:'unavailable',db:'not answering'}` otherwise. Set that path as the healthcheck on the live
+Railway service (service settings, not a `railway.toml`, which Railway stops reading on 2026-12-01),
+with a timeout of 60 to 300 seconds.
 
 ## Roadmap
 Open work lives in [docs/ROADMAP.md](docs/ROADMAP.md).
