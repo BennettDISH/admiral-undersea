@@ -62,8 +62,9 @@ Production: `npm run build` (builds client), then `npm start` (serves `client/di
 - `client/src/game/` — `MapBoard`, shared `constants.js`, `radio.js` (deduction), `EventLog`, `ToastHost`.
 - `client/src/components/TopBar.jsx` and `client/src/lib/` — the shared games top bar, Waypoint sign-in, joining a game's room.
 - `server/game/` — pure rules engine: `constants.js`, `map.js`, `engine.js` (+ `*.test.js`).
-- `server/sockets/game.js` — thin socket.io adapter over the engine; `rateLimit.js` caps events per socket.
+- `server/sockets/game.js` — thin socket.io adapter over the engine; `rateLimit.js` caps events per socket. It plays from memory and writes each match to Postgres a moment after it changes.
 - `server/routes/` — `auth.js`, `games.js`, `admin.js` (look-only admin views); `server/middleware/` — session and admin checks.
+- `server/services/matchStore.js` — the `game_matches` table: a match (or the lobby's automated-roles setup) saved so a deploy does not wipe it. `join-game` reads it back, timers and automated crew pick up where they were, and a finished game's match is dropped a day after game-over, any other after 7 days unchanged (swept hourly).
 - `server/services/guestSweep.js` — removes guests idle for 30 days.
 - `database/` — schema.
 

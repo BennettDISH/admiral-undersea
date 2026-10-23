@@ -66,6 +66,15 @@ function initGameState(mode = 'turn-based', sameRoom = false) {
   };
 }
 
+// A match read back from storage (a restart): raise the sonar counter past any ping it carries,
+// so a ping made from here on never shares an id with a restored one.
+function resumeState(state) {
+  for (const sub of Object.values(state.submarines || {})) {
+    if (Number.isInteger(sub.pendingSonar?.id)) sonarSeq = Math.max(sonarSeq, sub.pendingSonar.id);
+  }
+  return state;
+}
+
 // ---- geometry helpers on a sub --------------------------------------------
 const trailOf = (sub) => [...sub.path, sub.position];
 const isOnTrail = (sub, x, y) => trailOf(sub).some((c) => c.x === x && c.y === y);
@@ -475,6 +484,7 @@ module.exports = {
   MAX_SECTOR,
   newSubmarine,
   initGameState,
+  resumeState,
   trailOf,
   isOnTrail,
   moveLegality,

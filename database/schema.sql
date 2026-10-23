@@ -42,6 +42,16 @@ CREATE TABLE IF NOT EXISTS game_players (
     UNIQUE(game_id, user_id)
 );
 
+-- A match as the server holds it, so a restart (every deploy) does not wipe it
+-- (server/services/matchStore.js). state is the whole in-memory match, or only the lobby's
+-- automation setup before the game starts. A row goes 1 day after game-over, or 7 days after
+-- the last change to it, and with its game.
+CREATE TABLE IF NOT EXISTS game_matches (
+    game_id INTEGER PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
+    state JSONB NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
 -- Idempotent column migrations, so an existing database ends up with the same shape as
 -- a fresh one. The IF NOT EXISTS / IF EXISTS guards make re-running harmless.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS central_user_id INTEGER;
@@ -87,3 +97,4 @@ CREATE INDEX IF NOT EXISTS idx_games_code ON games(code);
 CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
 CREATE INDEX IF NOT EXISTS idx_game_players_game ON game_players(game_id);
 CREATE INDEX IF NOT EXISTS idx_game_players_user ON game_players(user_id);
+CREATE INDEX IF NOT EXISTS idx_game_matches_updated ON game_matches(updated_at);

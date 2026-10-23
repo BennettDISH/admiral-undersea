@@ -466,3 +466,18 @@ test('a broken mine system does not stop detonating a mine already laid (the cli
   assert.ok(r.ok);
   assert.strictEqual(s.submarines.bravo.health, 2);
 });
+
+// ---------------------------------------------------------------- restored matches
+test('a match read back from storage never reuses a restored sonar id', () => {
+  const s = game();
+  s.submarines.bravo.pendingSonar = { askingTeam: 'alpha', id: 500 }; // as stored before a restart
+  assert.strictEqual(E.resumeState(s), s, 'the same state comes back');
+  fullCharge(s, 'bravo');
+  assert.ok(E.useSonar(s, 'bravo').ok);
+  assert.ok(s.submarines.alpha.pendingSonar.id > 500, 'a ping made now gets a newer id');
+});
+
+test('resumeState accepts a lobby setup with no boats', () => {
+  const setup = { automatedRoles: { alpha: ['engineer'] }, systemPriority: {} };
+  assert.strictEqual(E.resumeState(setup), setup);
+});

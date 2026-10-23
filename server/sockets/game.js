@@ -6,11 +6,66 @@ const { verifyToken } = require('../config/jwt');
 const engine = require('../game/engine');
 const { getSystemMax, DEFAULT_PRIORITY, REQUIRED_ROLES, TUNABLES } = require('../game/constants');
 const { tokenBucket } = require('./rateLimit');
+const matchStore = require('../services/matchStore');
 
-// In-memory game state, keyed by game code. Survives disconnects (not tied to a socket).
+// In-memory game state, keyed by game code. Survives disconnects (not tied to a socket), and a
+// restart: every change is written to Postgres (services/matchStore.js) a moment later, and a
+// game with no entry here is read back from there (hydrate, below) before it is touched.
+// An entry is either a lobby's automation setup ({ automatedRoles, systemPriority }) or a match.
 const gameStates = new Map();
+const loading = new Map(); // game code -> the read of its stored match in progress
 
 const roomName = (code) => `game:${code}`;
+
+// ---- keeping matches in the database ---------------------------------------
+// Changes are collected and written together after SAVE_DELAY_MS, one write per game however
+// many events landed (live mode is several a second). A restart loses at most that long; a
+// shutdown writes what is waiting (flushMatches, called from index.js).
+const SAVE_DELAY_MS = 750;
+const dirty = new Set();
+let saveTimer = null;
+let writes = Promise.resolve(); // writes run one after another, so an old one never lands over a newer
+
+function markDirty(gameCode) {
+  const state = gameStates.get(gameCode);
+  if (!state) return;
+  state.touchedAt = Date.now();
+  dirty.add(gameCode);
+  if (!saveTimer) {
+    saveTimer = setTimeout(() => { saveTimer = null; flushMatches(); }, SAVE_DELAY_MS);
+    saveTimer.unref?.();
+  }
+}
+
+// Write every match waiting to be written; resolves when they have been. Never rejects.
+function flushMatches() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  const codes = [...dirty];
+  dirty.clear();
+  writes = writes.then(() => Promise.all(codes.map((code) => {
+    const state = gameStates.get(code);
+    return state ? matchStore.save(code, state) : null;
+  }))).catch((err) => console.error('match write error:', err));
+  return writes;
+}
+
+// Let go of matches past their time: in memory (a finished game 1 day after its game-over, any
+// other after 7 days unchanged) and in the database (the same, by the game's end and the row's
+// last write). Returns how many left memory.
+async function sweepMatches(now = Date.now()) {
+  let dropped = 0;
+  for (const [code, state] of gameStates) {
+    const touched = state.touchedAt ?? now;
+    const finished = state.gameOver && now - (state.endedAt ?? touched) > matchStore.FINISHED_TTL_MS;
+    if (finished || now - touched > matchStore.IDLE_TTL_MS) {
+      gameStates.delete(code);
+      dirty.delete(code);
+      dropped += 1;
+    }
+  }
+  await matchStore.purge();
+  return dropped;
+}
 
 // What a client may name: the stations a player picks (captain plus the crew, which are also
 // the ones automation can run) and the systems the automated first mate charges. A list from
@@ -33,8 +88,12 @@ function ensurePlayableState(gameCode, mode = 'turn-based', sameRoom = false) {
   if (prevAutomated.bravo) state.submarines.bravo.automatedRoles = prevAutomated.bravo;
 
   gameStates.set(gameCode, state);
+  markDirty(gameCode);
   return state;
 }
+
+// The crew a team has left to automation: the lobby's setting, else what the board carries.
+const automatedFor = (state, team) => state.automatedRoles?.[team] || state.submarines?.[team]?.automatedRoles || [];
 
 function setupGameSockets(io) {
   // ---- emit helpers --------------------------------------------------------
@@ -57,6 +116,7 @@ function setupGameSockets(io) {
   }
 
   function broadcastState(gameCode, state) {
+    markDirty(gameCode); // every change to a match ends in a broadcast
     const room = roomName(gameCode);
     io.to(`${room}:alpha`).emit('game-state', attachMeta(engine.getTeamVisibleState(state, 'alpha'), state, 'alpha'));
     io.to(`${room}:bravo`).emit('game-state', attachMeta(engine.getTeamVisibleState(state, 'bravo'), state, 'bravo'));
@@ -74,7 +134,8 @@ function setupGameSockets(io) {
   }
 
   // ---- timers --------------------------------------------------------------
-  function scheduleResurface(gameCode, state, team) {
+  // `delayMs` is what is left of the surfacing when a restored match picks it up again.
+  function scheduleResurface(gameCode, state, team, delayMs = TUNABLES.SURFACE_SECONDS * 1000) {
     setTimeout(() => {
       try {
         const cur = gameStates.get(gameCode);
@@ -83,7 +144,7 @@ function setupGameSockets(io) {
         emitEvents(null, gameCode, r.events);
         broadcastState(gameCode, cur);
       } catch (err) { console.error('resurface error:', err); }
-    }, TUNABLES.SURFACE_SECONDS * 1000);
+    }, delayMs);
   }
 
   // `sonarId` pins this timeout to a specific ping so it can't auto-answer a newer one early.
@@ -147,6 +208,7 @@ function setupGameSockets(io) {
     if (state) {
       if (state.persisted) return;
       state.persisted = true;
+      state.endedAt = Date.now(); // the match is kept a day from here
     }
     try {
       // Only a game being played finishes: a result already recorded is never overwritten.
@@ -155,6 +217,67 @@ function setupGameSockets(io) {
         [winner, gameCode],
       );
     } catch (err) { console.error('Failed to persist game result:', err); }
+    // The finished match is written now, not after the usual delay.
+    markDirty(gameCode);
+    flushMatches();
+  }
+
+  // ---- a match back from the database (after a restart) ----------------------
+  // Timers die with the process, so a restored match takes up what was running: a surfaced boat
+  // comes back up when its time ends, an open sonar still times out, a turn still has its
+  // watchdog, and a crew left to automation does what a move had queued for it.
+  function resumeTimers(gameCode, state) {
+    if (!state.submarines || state.gameOver) return;
+    const live = state.mode === 'live';
+    for (const team of ['alpha', 'bravo']) {
+      const sub = state.submarines[team];
+      const automated = automatedFor(state, team);
+      if (sub.surfaced) scheduleResurface(gameCode, state, team, Math.max(0, (sub.surfacedUntil || 0) - Date.now()));
+      if (sub.pendingSonar) scheduleSonarTimeout(gameCode, team, sub.pendingSonar.id);
+      if (!live && sub.awaitingConfirmation) scheduleTurnWatchdog(gameCode, team, sub.turnSeq);
+      if (live && sub.breakdownQueue.length > 0 && !automated.includes('engineer')) scheduleLiveEngineerWatchdog(gameCode, team);
+
+      const pending = live
+        ? (sub.chargeTokens > 0 && automated.includes('first-mate')) || (sub.breakdownQueue.length > 0 && automated.includes('engineer'))
+        : sub.awaitingConfirmation && automated.some((role) => !sub.confirmedRoles.includes(role));
+      if (pending) {
+        setTimeout(() => {
+          try { performAutomation(null, gameCode, team, sub.lastMoveDir, state, automated); }
+          catch (err) { console.error('automation error:', err); }
+        }, TUNABLES.AUTOMATION_DELAY_MS);
+      }
+    }
+  }
+
+  // The entry for a game: what memory holds, else the stored match, read once however many
+  // sockets ask at the same time. Anything that changes a game's setup or plays it asks here
+  // first, so a restart cannot make it start from nothing and overwrite what was stored.
+  // Resolves to the entry (a match, or a lobby's setup), or undefined when there is none.
+  async function hydrate(gameCode) {
+    if (gameStates.has(gameCode)) return gameStates.get(gameCode);
+    if (!loading.has(gameCode)) {
+      loading.set(gameCode, (async () => {
+        const stored = await matchStore.load(gameCode);
+        if (!gameStates.has(gameCode) && stored) {
+          gameStates.set(gameCode, engine.resumeState(stored));
+          resumeTimers(gameCode, stored);
+          if (stored.gameOver && !stored.persisted) persistGameOver(gameCode, stored.winner);
+        }
+        return gameStates.get(gameCode);
+      })().finally(() => loading.delete(gameCode)));
+    }
+    return loading.get(gameCode);
+  }
+
+  // A match to play for a game the database says is being played: the stored one, else a fresh
+  // board in the mode the game was made with (the server restarted before it was ever written,
+  // or lost it). Null for a game that is not being played: a lobby or finished game with no
+  // match here is not played, or a finished one would be replayed and its winner overwritten.
+  async function playableState(gameCode, row) {
+    const state = await hydrate(gameCode);
+    if (state?.submarines) return state;
+    if (!row || row.status !== 'playing') return null;
+    return ensurePlayableState(gameCode, row.game_mode === 'live' ? 'live' : 'turn-based', !!row.same_room);
   }
 
   // ---- turn-based automation (drives the crew the humans didn't take) -------
@@ -258,7 +381,7 @@ function setupGameSockets(io) {
       socket.gameCode = gameCode;
       console.log(`${socket.username} joined game ${gameCode}`);
 
-      const gameResult = await db.query('SELECT id FROM games WHERE code = $1', [gameCode]);
+      const gameResult = await db.query('SELECT id, status, game_mode, same_room FROM games WHERE code = $1', [gameCode]);
       if (gameResult.rows.length > 0) {
         const playerResult = await db.query(
           'SELECT team, roles FROM game_players WHERE game_id = $1 AND user_id = $2',
@@ -274,13 +397,16 @@ function setupGameSockets(io) {
 
       socket.to(room).emit('player-joined', { userId: socket.userId, username: socket.username });
 
-      const state = gameStates.get(gameCode);
-      if (state && state.submarines && socket.team) {
-        socket.emit('game-state', attachMeta(engine.getTeamVisibleState(state, socket.team), state, socket.team));
-        // On reconnect, re-prompt an open sonar this player's team owes.
-        if (state.submarines[socket.team].pendingSonar) {
-          socket.emit('sonar-request', { askingTeam: state.submarines[socket.team].pendingSonar.askingTeam });
-        }
+      // A seated player gets the match back: from memory, or after a restart from the database,
+      // or a fresh board for a game that is being played and has none.
+      const team = socket.team;
+      if (!team) return;
+      const state = await playableState(gameCode, gameResult.rows[0]);
+      if (!state?.submarines || socket.gameCode !== gameCode || socket.team !== team) return;
+      socket.emit('game-state', attachMeta(engine.getTeamVisibleState(state, team), state, team));
+      // On reconnect, re-prompt an open sonar this player's team owes.
+      if (state.submarines[team].pendingSonar) {
+        socket.emit('sonar-request', { askingTeam: state.submarines[team].pendingSonar.askingTeam });
       }
     });
 
@@ -329,11 +455,12 @@ function setupGameSockets(io) {
       if (teamIn(gameCode) !== team) return; // only configure your own team, in your own game
       const automatedRoles = pickFrom(picked, REQUIRED_ROLES); // the captain is never automated
       if (!automatedRoles) return;
-      let state = gameStates.get(gameCode);
+      let state = await hydrate(gameCode);
       if (!state) { state = { automatedRoles: {}, systemPriority: {} }; gameStates.set(gameCode, state); }
       if (!state.automatedRoles) state.automatedRoles = {};
       state.automatedRoles[team] = automatedRoles;
       if (state.submarines && state.submarines[team]) state.submarines[team].automatedRoles = automatedRoles;
+      markDirty(gameCode);
       io.to(room).emit('automated-roles-updated', { team, automatedRoles });
     });
 
@@ -342,10 +469,11 @@ function setupGameSockets(io) {
       if (teamIn(gameCode) !== team) return; // only configure your own team, in your own game
       const systemPriority = pickFrom(picked, DEFAULT_PRIORITY);
       if (!systemPriority) return;
-      let state = gameStates.get(gameCode);
+      let state = await hydrate(gameCode);
       if (!state) { state = { systemPriority: {} }; gameStates.set(gameCode, state); }
       if (!state.systemPriority) state.systemPriority = {};
       state.systemPriority[team] = systemPriority;
+      markDirty(gameCode);
     });
 
     on('start-game', async ({ gameCode }) => {
@@ -363,7 +491,7 @@ function setupGameSockets(io) {
         await db.query(`UPDATE games SET status = 'playing', started_at = NOW() WHERE code = $1`, [gameCode]);
       } catch (err) { console.error('start-game DB error:', err); }
 
-      const existing = gameStates.get(gameCode);
+      const existing = await hydrate(gameCode); // the lobby's setup, even across a restart
       const automatedRoles = existing?.automatedRoles || {};
       const systemPriority = existing?.systemPriority || {};
 
@@ -373,6 +501,7 @@ function setupGameSockets(io) {
       if (automatedRoles.alpha) state.submarines.alpha.automatedRoles = automatedRoles.alpha;
       if (automatedRoles.bravo) state.submarines.bravo.automatedRoles = automatedRoles.bravo;
       gameStates.set(gameCode, state);
+      markDirty(gameCode);
 
       io.to(`${room}:alpha`).emit('game-started', attachMeta(engine.getTeamVisibleState(state, 'alpha'), state, 'alpha'));
       io.to(`${room}:bravo`).emit('game-started', attachMeta(engine.getTeamVisibleState(state, 'bravo'), state, 'bravo'));
@@ -386,13 +515,13 @@ function setupGameSockets(io) {
       let state = gameStates.get(gameCode);
       if (!state?.submarines) {
         // No match in memory: the server restarted (every deploy does) or the game never
-        // started. Only a game the database says is being played gets a fresh board, in the
-        // mode it was made with. A lobby or finished game is not played here: a finished one
-        // would otherwise be replayed and its stored winner overwritten.
+        // started. The stored match comes back; failing that, only a game the database says is
+        // being played gets a fresh board, in the mode it was made with. A lobby or finished
+        // game is not played here: a finished one would otherwise be replayed and its stored
+        // winner overwritten.
         const g = await db.query('SELECT status, game_mode, same_room FROM games WHERE code = $1', [gameCode]);
-        const row = g.rows[0];
-        if (!row || row.status !== 'playing') return socket.emit('action-rejected', { action: 'move', reason: 'not-playing' });
-        state = ensurePlayableState(gameCode, row.game_mode === 'live' ? 'live' : 'turn-based', !!row.same_room);
+        state = await playableState(gameCode, g.rows[0]);
+        if (!state) return socket.emit('action-rejected', { action: 'move', reason: 'not-playing' });
       }
       const sub = state.submarines[team];
       if (!sub) return;
@@ -407,7 +536,7 @@ function setupGameSockets(io) {
       const r = engine.applyMove(state, team, direction);
       if (!apply(socket, gameCode, state, r)) return;
 
-      const automatedRoles = state.automatedRoles?.[team] || sub.automatedRoles || [];
+      const automatedRoles = automatedFor(state, team);
       if (automatedRoles.length > 0) {
         setTimeout(() => {
           try { performAutomation(socket, gameCode, team, direction, state, automatedRoles); }
@@ -529,6 +658,9 @@ function setupGameSockets(io) {
       console.log('Client disconnected:', socket.id);
     });
   });
+
+  // For index.js: write what is waiting at shutdown, and let go of old matches now and then.
+  return { flushMatches, sweepMatches };
 }
 
 module.exports = setupGameSockets;
