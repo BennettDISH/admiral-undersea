@@ -12,6 +12,9 @@
     "install-all": "cd server && npm install && cd ../client && npm install",
     "postinstall": "npm run install-all && npm run build"
   },
+  "engines": {
+    "node": "22.x"
+  },
   "keywords": [
     "captain-sonar",
     "board-game",

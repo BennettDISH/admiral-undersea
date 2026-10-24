@@ -2,8 +2,6 @@ const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 
@@ -14,6 +12,9 @@ const { healthHandler } = require('./routes/health');
 const setupGameSockets = require('./sockets/game');
 const initDb = require('./config/initDb');
 const { corsOrigin } = require('./config/origin');
+const { requestLog } = require('./middleware/requestLog');
+const { securityHeaders } = require('./middleware/securityHeaders');
+const { apiNotFound, errorHandler } = require('./middleware/errors');
 const { scheduleGuestSweep } = require('./services/guestSweep');
 
 // FRONTEND_URL, or nobody but this site in production (see config/origin.js).
@@ -36,15 +37,14 @@ const PORT = process.env.PORT || 5000;
 // which the client writes itself, and the sign-in limit in routes/auth.js counts req.ip.
 app.set('trust proxy', 1);
 
-// Middleware
-app.use(helmet({
-  contentSecurityPolicy: false
-}));
+// Middleware. Railway's healthcheck is /api/health, so that is the path left out of the log.
+app.use(requestLog({ skip: (req) => req.path === '/api/health' }));
+// CSP, HSTS, frame protection and the referrer policy: middleware/securityHeaders.js
+app.use(securityHeaders());
 app.use(cors({
   origin: allowedOrigin,
   credentials: true
 }));
-app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -59,6 +59,9 @@ const { flushMatches, sweepMatches } = setupGameSockets(io);
 // Health check (Railway's healthcheck path): 200 only while Postgres answers a SELECT 1
 app.get('/api/health', healthHandler());
 
+// An /api path no route answered is a JSON 404, not the app's page.
+app.use('/api', apiNotFound);
+
 // Serve static files from React build
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
@@ -66,6 +69,9 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
+
+// Last: any error a route forwards is logged with the request id and answered in JSON.
+app.use(errorHandler);
 
 async function start() {
   try {

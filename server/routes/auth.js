@@ -5,8 +5,20 @@ const db = require('../config/database');
 const { SSO_ENABLED, AUTH_SERVICE_URL, SSO_CLIENT_ID, centralRegister, centralLogin, centralGuest, exchangeCode } = require('../config/sso');
 const { signToken } = require('../config/jwt');
 const { requireAuth } = require('../middleware/auth');
+const { rateLimiter, ipKey } = require('../config/rateLimit');
 
 const router = express.Router();
+
+// Every sign-in route that reaches Waypoint, which only sees this server's one address and caps
+// per address: without a limit here, one visitor could use up everyone's sign-ins or mint
+// accounts without end. Per browser address (req.ip, one trusted proxy hop: index.js), in memory.
+const signupLimit = rateLimiter({ windowMs: 60 * 60 * 1000, max: 10 });
+const guestLimit = rateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
+const callbackLimit = rateLimiter({ windowMs: 15 * 60 * 1000, max: 20 });
+const tooMany = (res, windowMs, error) => {
+  res.set('Retry-After', String(Math.ceil(windowMs / 1000)));
+  return res.status(429).json({ error });
+};
 
 // __Host- keeps a sibling *.bennettdishman.com page from planting a Domain-wide cookie of the
 // same name. The prefix needs Secure, path / and no Domain; browsers accept Secure on localhost.
@@ -149,6 +161,7 @@ async function freeEmail(desired) {
 
 // Register new user
 router.post('/register', async (req, res) => {
+  if (!signupLimit(ipKey(req.ip))) return tooMany(res, 60 * 60 * 1000, 'Too many new accounts from here. Try again later.');
   const { email, username, password } = req.body;
 
   if (!email || !username || !password) {
@@ -299,6 +312,7 @@ router.get('/sso/login', (req, res) => {
 // SSO callback: the client posts the code + state it received; we verify the state against
 // our cookie and exchange the code server-side (the client_secret never leaves the server).
 router.post('/sso-callback', async (req, res) => {
+  if (!callbackLimit(ipKey(req.ip))) return tooMany(res, 15 * 60 * 1000, 'Too many attempts. Try again in a few minutes.');
   if (!SSO_ENABLED) {
     return res.status(404).json({ error: 'SSO not configured' });
   }
@@ -328,6 +342,7 @@ router.post('/sso-callback', async (req, res) => {
 
 // One-click guest: mint a central guest account and sign in as it — no redirect, no form.
 router.post('/guest', async (req, res) => {
+  if (!guestLimit(ipKey(req.ip))) return tooMany(res, 15 * 60 * 1000, 'Too many guest sign-ins from here. Try again in a few minutes.');
   if (!SSO_ENABLED) return res.status(503).json({ error: 'Guest sign-in is not available' });
   try {
     const central = normalizeCentral(await centralGuest());
