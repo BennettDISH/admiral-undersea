@@ -1,7 +1,7 @@
-// What /admin does for whoever opens it. The game keeps its session token in the browser rather
-// than a cookie, so the server cannot see who is asking when it serves the page; the page asks
-// /api/admin/me, and every admin API refuses a non-admin on its own (403). Signed out goes to
-// sign-in and comes back (App.jsx's SignInFirst); anyone else gets a plain page with nothing of
+// What /admin does for whoever opens it. The server decides the page first (fleet-kit's gate:
+// signed out goes to sign-in and back, anyone but the admin gets a plain 403), and every admin
+// API refuses a non-admin on its own (403). This is for a player who follows a link to /admin
+// inside the game: the page asks /api/admin/me, and anyone else gets a plain page with nothing of
 // the admin area in it.
 
 export const FORBIDDEN_TEXT = 'This page is for the site admin.'

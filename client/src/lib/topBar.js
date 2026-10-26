@@ -1,5 +1,5 @@
-// The bar every game shares, so the games feel like one site. The arcade's address lives
-// here and nowhere else.
+// The bar every game shares, so the games feel like one site (fleet-kit's <fleet-topbar>,
+// components/TopBar.jsx). The arcade's address lives here and nowhere else.
 export const ARCADE_URL = 'https://games.bennettdishman.com/';
 
 // What the account chip says: the display name, "Guest" for a Waypoint guest, or "Sign in".
@@ -11,10 +11,7 @@ export function chipLabel(user) {
   return user.display_name || user.username || 'Account';
 }
 
-// Waypoint's sign-out, which ends the Waypoint session every game's sign-in reuses, then
-// sends you on to the arcade (return_to). null when Waypoint's address isn't known (SSO off),
-// and the menu leaves the item out.
-export function waypointLogoutUrl(authUrl) {
-  if (typeof authUrl !== 'string' || !/^https?:\/\/[^/]/.test(authUrl)) return null;
-  return `${authUrl.replace(/\/+$/, '')}/logout?return_to=${encodeURIComponent(ARCADE_URL)}`;
-}
+// "Sign out of all games": the server's route to Waypoint's own sign-out page, which ends the
+// Waypoint session every game's sign-in reuses, then sends you on to the arcade (return_to).
+// The game's own session is ended first (POST /api/auth/logout).
+export const logoutAllUrl = () => `/api/auth/logout-all?return_to=${encodeURIComponent(ARCADE_URL)}`;

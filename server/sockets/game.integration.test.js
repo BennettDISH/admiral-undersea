@@ -1,5 +1,5 @@
 // Adapter-seam test: drives the real socket handlers through a fake io/socket, mocking
-// only the DB + JWT modules. Verifies engine wiring, event routing, rejection, and the
+// only the DB module (the handshake is not run). Verifies engine wiring, event routing, rejection, and the
 // confirm loop -- the layer the pure-engine tests don't cover. No Postgres required.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -19,8 +19,6 @@ require.cache[dbPath] = {
     },
   },
 };
-const jwtPath = require.resolve('../config/jwt');
-require.cache[jwtPath] = { id: jwtPath, filename: jwtPath, loaded: true, exports: { verifyToken: () => ({ id: 1, username: 'x' }) } };
 
 const setupGameSockets = require('./game');
 

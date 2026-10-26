@@ -7,8 +7,13 @@ export default defineConfig({
     port: 5173,
     // Allow importing ../shared/gameConstants.json (single-sourced with the server).
     fs: { allow: ['..'] },
+    // The server answers the API and Waypoint's return (it sets the session cookie).
     proxy: {
       '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      },
+      '/auth/callback': {
         target: 'http://localhost:5000',
         changeOrigin: true
       }

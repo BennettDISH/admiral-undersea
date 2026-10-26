@@ -4,10 +4,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  RETURN_KEY, HOLD_KEY, AUTO_KEY, AUTO_GAP_MS,
-  holdReason, goStraightToWaypoint, returnPath, safeReturnPath, ssoStartUrl, startWaypoint,
+  HOLD_KEY, AUTO_KEY, AUTO_GAP_MS,
+  holdReason, goStraightToWaypoint, returnPath, signInError, ssoStartUrl, startWaypoint,
 } from '../src/lib/signIn.js'
-import { ARCADE_URL, chipLabel, waypointLogoutUrl } from '../src/lib/topBar.js'
+import { ARCADE_URL, chipLabel, logoutAllUrl } from '../src/lib/topBar.js'
 
 const on = { ssoEnabled: true, hold: null, wantsLocal: false }
 
@@ -46,17 +46,22 @@ test('the return path is a page on this site, never the sign-in machinery', () =
   assert.equal(returnPath('/login', ''), null)
   assert.equal(returnPath('/register', '?local'), null)
   assert.equal(returnPath('/auth/callback', '?code=x'), null)
+  assert.equal(returnPath('/lobby/ABC123', '?error=sso_state'), '/lobby/ABC123', 'a sign-in error is dropped')
   assert.equal(returnPath('//evil.example/x', ''), null)
-  assert.equal(safeReturnPath('/game/ABC123'), '/game/ABC123')
-  assert.equal(safeReturnPath('https://evil.example/'), '/')
-  assert.equal(safeReturnPath('//evil.example/'), '/')
-  assert.equal(safeReturnPath(null), '/')
 })
 
-test('the start URL asks for prompt=login only for Switch account', () => {
+test('the start URL carries the page to come back to, and prompt=login only for Switch account', () => {
   assert.equal(ssoStartUrl(), '/api/auth/sso/login')
   assert.equal(ssoStartUrl({ prompt: 'login' }), '/api/auth/sso/login?prompt=login')
   assert.equal(ssoStartUrl({ prompt: 'none' }), '/api/auth/sso/login')
+  assert.equal(ssoStartUrl({ next: '/lobby/ABC123' }), '/api/auth/sso/login?next=%2Flobby%2FABC123')
+  assert.equal(ssoStartUrl({ next: '/join?code=XYZ', prompt: 'login' }), '/api/auth/sso/login?next=%2Fjoin%3Fcode%3DXYZ&prompt=login')
+})
+
+test('a sign-in that came back with an error says why', () => {
+  assert.equal(signInError(null), null)
+  assert.match(signInError('sso_busy'), /Too many sign-in attempts/)
+  for (const code of ['sso_state', 'sso_exchange', 'sso_save', 'anything']) assert.match(signInError(code), /did not finish/, code)
 })
 
 function fakeEnv() {
@@ -74,12 +79,11 @@ function fakeEnv() {
   return { env, store }
 }
 
-test('an automatic trip stores the way back and the time, and replaces history', () => {
+test('an automatic trip carries the way back, stores the time, and replaces history', () => {
   const { env, store } = fakeEnv()
   store.set(HOLD_KEY, 'failed')
   startWaypoint({ back: '/lobby/ABC123', automatic: true }, env)
-  assert.deepEqual(env.went, { url: '/api/auth/sso/login', replace: true })
-  assert.equal(store.get(RETURN_KEY), '/lobby/ABC123')
+  assert.deepEqual(env.went, { url: '/api/auth/sso/login?next=%2Flobby%2FABC123', replace: true })
   assert.equal(store.get(AUTO_KEY), '42')
   assert.equal(store.has(HOLD_KEY), false)
 })
@@ -94,11 +98,11 @@ test('a click (Switch account) clears the hold and the automatic timer', () => {
   assert.equal(store.has(AUTO_KEY), false)
 })
 
-test('the top bar: arcade link, chip label, Waypoint sign-out', () => {
+test('the top bar: arcade link, chip label, Sign out of all games', () => {
   assert.equal(ARCADE_URL, 'https://games.bennettdishman.com/')
   assert.equal(chipLabel(null), 'Sign in')
   assert.equal(chipLabel({ username: 'captain' }), 'captain')
   assert.equal(chipLabel({ username: 'guest-swift-otter-4821' }), 'Guest')
-  assert.equal(waypointLogoutUrl('https://auth.example'), 'https://auth.example/logout?return_to=https%3A%2F%2Fgames.bennettdishman.com%2F')
-  assert.equal(waypointLogoutUrl(null), null)
+  assert.equal(chipLabel({ username: 'kept-it', is_guest: true }), 'Guest')
+  assert.equal(logoutAllUrl(), '/api/auth/logout-all?return_to=https%3A%2F%2Fgames.bennettdishman.com%2F')
 })

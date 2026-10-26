@@ -1,6 +1,6 @@
 // A captain's move for a game the server holds no match for (it restarted, or the game never
 // started): only a game the database says is being played gets a board, in its own mode.
-// DB and JWT are mocked as in game.integration.test.js; no Postgres needed.
+// The DB is mocked as in game.integration.test.js; no Postgres needed.
 const test = require('node:test');
 const assert = require('node:assert');
 
@@ -17,8 +17,6 @@ require.cache[dbPath] = {
     },
   },
 };
-const jwtPath = require.resolve('../config/jwt');
-require.cache[jwtPath] = { id: jwtPath, filename: jwtPath, loaded: true, exports: { verifyToken: () => ({ id: 1, username: 'x' }) } };
 
 const setupGameSockets = require('./game');
 

@@ -1,17 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { auth } from '../services/api'
-import { HOLD_KEY, AUTO_KEY, holdReason, goStraightToWaypoint, returnPath, startWaypoint } from '../lib/signIn'
+import { HOLD_KEY, AUTO_KEY, holdReason, goStraightToWaypoint, returnPath, signInError, startWaypoint } from '../lib/signIn'
 
 // Sign-in is Waypoint's job. With SSO configured, arriving here signed out goes straight to
 // Waypoint, whose own page takes the password or offers "Continue as guest", so the game has
 // no form of its own to type a password into. After Sign out or a failed attempt the page
-// waits for a click instead. The game's old password form, guest button and Register are
-// kept behind ?local for now; without SSO they are the whole page, as before.
+// waits for a click instead: a sign-in that did not finish comes back as /login?error=…
+// (the server's callback), which holds the page and says why. The game's old password form,
+// guest button and Register are kept behind ?local for now; without SSO they are the whole
+// page, as before.
 function Login({ user, ssoEnabled, onLogin }) {
   const location = useLocation()
-  const wantsLocal = new URLSearchParams(location.search).has('local')
-  const [hold] = useState(() => holdReason(sessionStorage.getItem(HOLD_KEY)))
+  const params = new URLSearchParams(location.search)
+  const wantsLocal = params.has('local')
+  const [failure] = useState(() => signInError(params.get('error')))
+  const [hold] = useState(() => {
+    if (failure) sessionStorage.setItem(HOLD_KEY, 'failed')
+    return holdReason(sessionStorage.getItem(HOLD_KEY))
+  })
   const [lastAutoAt] = useState(() => sessionStorage.getItem(AUTO_KEY))
   const started = useRef(false)
   const from = location.state?.from
@@ -50,7 +57,7 @@ function Login({ user, ssoEnabled, onLogin }) {
         <h1>Admiral Undersea</h1>
         <h2>
           {hold === 'signed-out' ? 'You are signed out.'
-            : hold === 'failed' ? 'Waypoint sign-in did not finish. Try again.'
+            : hold === 'failed' ? (failure || 'Waypoint sign-in did not finish. Try again.')
             : 'Sign in with your Waypoint account, or play as a guest.'}
         </h2>
         <button type="button" className="sso-primary" onClick={() => startWaypoint({ back })} autoFocus>
@@ -74,10 +81,8 @@ function LocalSignIn({ ssoEnabled, onLogin }) {
     setLoading(true)
 
     try {
+      // the answer sets the session cookie
       const response = await auth.login(username, password)
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token)
-      }
       onLogin(response.data.user)
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed')
@@ -91,9 +96,6 @@ function LocalSignIn({ ssoEnabled, onLogin }) {
     setLoading(true)
     try {
       const response = await auth.guest()
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token)
-      }
       onLogin(response.data.user)
     } catch (err) {
       setError(err.response?.data?.error || 'Could not start a guest session')

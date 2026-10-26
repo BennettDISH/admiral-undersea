@@ -1,11 +1,11 @@
 const express = require('express');
 const db = require('../config/database');
-const { requireAuth } = require('../middleware/auth');
+const { wp } = require('../config/auth');
 
 const router = express.Router();
 
-// All game routes require an authenticated user.
-router.use(requireAuth);
+// All game routes require an authenticated user (the session cookie, fleet-kit).
+router.use(wp.requireUser);
 
 const GAME_MODES = ['turn-based', 'live'];
 

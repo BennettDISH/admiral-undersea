@@ -5,12 +5,12 @@
 // (guest-swift-otter-4821, with "#<central id>" when the name was taken here; Waypoint keeps
 // "guest-" for guests, so no account can pick one). A guest who keeps the account takes a
 // new name, which the next sign-in copies, and is never touched.
-// "Seen" is last_seen_at: every Waypoint sign-in stamps it (routes/auth.js), and a row from
-// before the column counts as seen when it arrived. A session is a token good for
-// JWT_EXPIRES_IN (7 days) from sign-in, never renewed, and the sockets check the same token.
-// Past the window (GUEST_RETENTION_DAYS, 30 by default: the same setting and window as
-// Waypoint, which forgets an idle guest on its side too) no token of that guest still works,
-// so it cannot come back while the sweep is taking it.
+// "Seen" is last_seen_at: every Waypoint sign-in and every daily session renewal stamps it
+// (config/auth.js), and a row from before the column counts as seen when it arrived. A session
+// is fleet-kit's cookie, good for 30 days from its last renewal (the sockets read the same
+// cookie), and every row it reads must still exist. Past the window (GUEST_RETENTION_DAYS, 30 by
+// default: the same setting and window as Waypoint, which forgets an idle guest on its side too)
+// no session of that guest still works, so it cannot come back while the sweep is taking it.
 //
 // What goes is only what nobody else has a part in:
 //   - a game a stale guest made, if deleting it deletes or changes no row that names anyone
@@ -34,7 +34,7 @@
 // said in the log, and the rest go.
 //
 // Who may go is Waypoint's word, not only this copy's: the idle guests are asked about first
-// (guestCheck.js). One that claimed its account there stays (this copy still looks like a guest until
+// (fleet-kit's checkGuests). One that claimed its account there stays (this copy still looks like a guest until
 // its next sign-in, and is asked about again each run); one Waypoint does not link to this app stays
 // and is logged; only an unclaimed guest, or an id no Waypoint account has any more, is taken. If
 // Waypoint cannot answer (no answer, an error, not deployed yet) nobody is taken that run. The rest
@@ -45,27 +45,19 @@
 // PGlite mode); GUEST_CLEANUP_ENABLED=false turns it off. A failure is logged and never
 // thrown: a background chore never takes the server down.
 const db = require('../config/database');
-const { checkGuests } = require('./guestCheck');
+const { checkGuests } = require('fleet-kit/server');
 
 /** The pool; the local PGlite mode is one session, so it is its own one connection. */
 const pool = db.connect ? db : { connect: async () => ({ query: (text, params) => db.query(text, params), release() {} }) };
-
-/** How long a session lasts, from JWT_EXPIRES_IN ('7d', '12h', or seconds); a value this
- *  cannot read counts as a year, so the sweep waits rather than guesses short. */
-function sessionDays(value) {
-  const m = /^(\d+)\s*(d|h|m|s)?$/.exec(String(value).trim());
-  if (!m) return 365;
-  const seconds = Number(m[1]) * { d: 86400, h: 3600, m: 60, s: 1 }[m[2] || 's'];
-  return Math.max(1, Math.ceil(seconds / 86400));
-}
 
 /** The accounts: the table, its own id, what makes one a guest and when it was last seen. */
 const USERS = 'users';
 const USER_ID = 'id';
 const isGuest = (u) => `(${u}.username ~ '^guest-[a-z]+-[a-z]+-[0-9]{4}(#[0-9]+)?$' AND ${u}.central_user_id IS NOT NULL AND ${u}.password_hash = 'sso-managed')`;
 const lastSeen = (u) => `GREATEST(${u}.last_seen_at, ${u}.created_at)`;
-/** The sweep never takes a guest sooner than a session lasts, whatever the setting. */
-const SESSION_DAYS = sessionDays(process.env.JWT_EXPIRES_IN || '7d');
+/** The sweep never takes a guest sooner than a session lasts, whatever the setting: the kit's
+ *  30 days from the last renewal (config/auth.js). */
+const SESSION_DAYS = 30;
 /** What a guest makes on its own: the table, the key that names its maker, its own id. */
 const ROOTS = [
   { table: 'games', owner: 'created_by', id: 'id' },

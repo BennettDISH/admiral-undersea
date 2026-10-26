@@ -1,28 +1,23 @@
 const express = require('express');
 const db = require('../config/database');
-const { requireAuth } = require('../middleware/auth');
-const { requireAdmin, isAdmin } = require('../middleware/admin');
-const { SSO_ENABLED } = require('../config/sso');
+const { wp } = require('../config/auth');
 const { guestSweepOff } = require('../services/guestSweep');
 
 // Look-only admin views of every account and game. GET only: nothing here writes.
+// The site admin is a Waypoint central id in ADMIN_CENTRAL_USER_IDS, read on every request
+// (fleet-kit); never a guest, never a local-only account.
 const router = express.Router();
 
 const PAGE_SIZE = 50;
 
-router.use(requireAuth);
+router.use(wp.requireUser);
 
 // Lets the client decide whether to show the admin link. Any signed-in user may ask.
-router.get('/me', async (req, res) => {
-  try {
-    res.json({ isAdmin: await isAdmin(req.user.id) });
-  } catch (error) {
-    console.error('Admin status error:', error);
-    res.status(500).json({ error: 'Admin check failed' });
-  }
+router.get('/me', (req, res) => {
+  res.json({ isAdmin: Boolean(req.user.is_admin) });
 });
 
-router.use(requireAdmin);
+router.use(wp.requireAdmin);
 
 // The switches that live in the server's environment, shown read-only: on or off, never a
 // value. Changing one is a Railway variable, not something this page does.
@@ -30,7 +25,7 @@ router.get('/switches', (req, res) => {
   const sweepOff = guestSweepOff();
   res.json({
     switches: [
-      { name: 'Waypoint sign-in', env: 'AUTH_SERVICE_URL, SSO_CLIENT_ID, SSO_CLIENT_SECRET', on: SSO_ENABLED },
+      { name: 'Waypoint sign-in', env: 'AUTH_SERVICE_URL, SSO_CLIENT_ID, SSO_CLIENT_SECRET', on: wp.client.configured() },
       { name: 'Guest sweep', env: 'GUEST_CLEANUP_ENABLED', on: !sweepOff, note: sweepOff || null }
     ]
   });

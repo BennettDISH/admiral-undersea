@@ -55,10 +55,14 @@ CREATE TABLE IF NOT EXISTS game_matches (
 -- Idempotent column migrations, so an existing database ends up with the same shape as
 -- a fresh one. The IF NOT EXISTS / IF EXISTS guards make re-running harmless.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS central_user_id INTEGER;
--- The last Waypoint sign-in (server/routes/auth.js), for the guest sweep
+-- The last Waypoint sign-in or session renewal (server/config/auth.js), for the guest sweep
 -- (server/services/guestSweep.js). A row from before the column counts as seen when it
 -- arrives; a new row is seen when it is made.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP DEFAULT NOW();
+-- The session is a signed cookie (fleet-kit, server/config/auth.js) carrying the account's
+-- token_version from when it was made: signing out adds one, which ends that session and every
+-- other device's.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE game_players ADD COLUMN IF NOT EXISTS roles VARCHAR(255);
 
 -- games.map_id was created for a map picker that was never built: nothing in the server,

@@ -1,6 +1,7 @@
 // MapBoard (src/game/MapBoard.jsx) as markup: a grid with one tab stop, and every cell labelled.
-// Node cannot read JSX, so the component is bundled with esbuild (which Vite already ships) and
-// rendered to a string with react-dom/server; the keys themselves are tested in map-grid.test.js.
+// Node cannot read JSX, so the component is bundled with esbuild (a dev dependency of its own:
+// Vite 8 no longer ships it) and rendered to a string with react-dom/server; the keys themselves
+// are tested in map-grid.test.js.
 import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'

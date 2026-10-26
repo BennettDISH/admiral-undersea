@@ -25,7 +25,7 @@ function Lobby({ user }) {
 
   useEffect(() => {
     loadGame()
-    connectSocket()
+    connectSocket(user.id)
     const stopJoining = joinGameOnConnect(socket, code)
 
     socket.on('player-joined', ({ userId, username }) => {

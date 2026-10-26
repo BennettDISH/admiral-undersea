@@ -1,16 +1,11 @@
-// Signing in goes through Waypoint (the bug tracker's helper, shared by every game). These are
-// the decisions around the redirect; startWaypoint below is the one browser side effect, and
-// Login and AuthCallback do the rest.
-//
-// Unlike the other games, the OAuth state here never touches the browser's storage: the
-// server makes it at /api/auth/sso/login, keeps it in an httpOnly cookie and checks it when
-// the callback posts the code back (server/routes/auth.js).
+// Signing in goes through Waypoint. The server builds the trip there and takes the code back
+// (fleet-kit): it keeps the OAuth state in an httpOnly cookie of its own, finishes the sign-in
+// at /auth/callback and sends the browser on to the page that needed an account (`next`). These
+// are the page's decisions around it; startWaypoint below is the one browser side effect.
 
-// sessionStorage keys. sso_return is the page to come back to; sso_hold keeps the sign-in
-// page on screen instead of leaving for Waypoint ('signed-out' after Sign out, 'failed' after
-// a callback that didn't work); sso_auto is when the last trip to Waypoint that nobody
-// clicked for started.
-export const RETURN_KEY = 'sso_return'
+// sessionStorage keys. sso_hold keeps the sign-in page on screen instead of leaving for
+// Waypoint ('signed-out' after Sign out, 'failed' after a sign-in that came back with an
+// error); sso_auto is when the last trip to Waypoint that nobody clicked for started.
 export const HOLD_KEY = 'sso_hold'
 export const AUTO_KEY = 'sso_auto'
 
@@ -33,27 +28,35 @@ export function goStraightToWaypoint({ ssoEnabled, hold, wantsLocal, lastAutoAt 
 }
 
 // The page to come back to after Waypoint: a path on this site, never the sign-in
-// machinery itself, and without ?local. null means the game's usual landing page.
+// machinery itself, and without ?local or a sign-in ?error. null means the game's usual
+// landing page.
 export function returnPath(pathname, search = '') {
   if (typeof pathname !== 'string' || !pathname.startsWith('/') || pathname.startsWith('//')) return null
   if (['/auth/callback', '/login', '/register'].includes(pathname)) return null
   const params = new URLSearchParams(typeof search === 'string' ? search : '')
   params.delete('local')
+  params.delete('error')
   const qs = params.toString()
   const path = qs ? `${pathname}?${qs}` : pathname
   return path === '/' ? null : path
 }
 
-// A stored return path is only followed if it is still a plain path on this site.
-export function safeReturnPath(value, fallback = '/') {
-  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return fallback
-  return value
+// The server's route that sends you on to Waypoint, with the page to come back to. The server
+// follows `next` only to a path on this site. prompt=login (Switch account) makes Waypoint ask
+// which account again instead of reusing the one it is signed in as.
+export function ssoStartUrl({ next = null, prompt } = {}) {
+  const params = new URLSearchParams()
+  if (next) params.set('next', next)
+  if (prompt === 'login') params.set('prompt', 'login')
+  const qs = params.toString()
+  return `/api/auth/sso/login${qs ? `?${qs}` : ''}`
 }
 
-// The game's own route that sends you on to Waypoint. prompt=login (Switch account) makes
-// Waypoint ask which account again instead of reusing the one it is signed in as.
-export function ssoStartUrl({ prompt } = {}) {
-  return prompt === 'login' ? '/api/auth/sso/login?prompt=login' : '/api/auth/sso/login'
+// What the sign-in page says when the server sent it back with ?error= (fleet-kit's codes).
+export function signInError(code) {
+  if (!code) return null
+  if (code === 'sso_busy') return 'Too many sign-in attempts from here. Wait a few minutes and try again.'
+  return 'Waypoint sign-in did not finish. Try again.'
 }
 
 const browser = () => ({
@@ -68,9 +71,7 @@ const browser = () => ({
 export function startWaypoint({ back = null, prompt, automatic = false } = {}, env = browser()) {
   const { storage } = env
   storage.removeItem(HOLD_KEY)
-  if (back) storage.setItem(RETURN_KEY, back)
-  else storage.removeItem(RETURN_KEY)
   if (automatic) storage.setItem(AUTO_KEY, String(env.now()))
   else storage.removeItem(AUTO_KEY)
-  env.go(ssoStartUrl({ prompt }), { replace: automatic })
+  env.go(ssoStartUrl({ next: back, prompt }), { replace: automatic })
 }

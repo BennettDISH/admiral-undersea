@@ -8,39 +8,22 @@ const path = require('node:path');
 
 process.env.USE_PGLITE = '1';
 process.env.JWT_SECRET = 'auth-limits-test-secret';
-
-const ssoPath = require.resolve('../config/sso');
-require.cache[ssoPath] = {
-  id: ssoPath, filename: ssoPath, loaded: true,
-  exports: {
-    SSO_ENABLED: false,
-    AUTH_SERVICE_URL: '',
-    SSO_CLIENT_ID: '',
-    centralRegister: async () => { throw new Error('not used'); },
-    centralLogin: async () => { throw new Error('not used'); },
-    centralGuest: async () => { throw new Error('not used'); },
-    exchangeCode: async () => { throw new Error('not used'); },
-  },
-};
+for (const name of ['AUTH_SERVICE_URL', 'SSO_CLIENT_ID', 'SSO_CLIENT_SECRET']) delete process.env[name];
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const { trustOneProxy } = require('fleet-kit/server');
 const db = require('../config/database');
 const initDb = require('../config/initDb');
 const authRoutes = require('./auth');
-
-// The server's own trust proxy setting, read from index.js (which starts listening when
-// required), so this app sees addresses the way production does.
-const indexSource = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
-const trustProxy = JSON.parse(indexSource.match(/app\.set\('trust proxy', ([^)]+)\)/)[1]);
 
 let base;
 let server;
 
 test.before(async () => {
   await initDb();
-  const app = express();
-  app.set('trust proxy', trustProxy);
+  // the server's own setting (index.js), so this app sees addresses the way production does
+  const app = trustOneProxy(express());
   app.use(express.json());
   app.use('/api/auth', authRoutes);
   await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
@@ -72,7 +55,9 @@ const login = async (username, password, address, spoofed) => {
 };
 
 test('the server trusts exactly one proxy hop', () => {
-  assert.strictEqual(trustProxy, 1);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+  assert.match(source, /const app = trustOneProxy\(express\(\)\);/);
+  assert.ok(!/app\.set\('trust proxy'/.test(source), 'nothing sets it to anything else');
 });
 
 test('10 wrong passwords for one name make that name wait, from any address', async () => {

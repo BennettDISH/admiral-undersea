@@ -9,7 +9,7 @@ process.env.JWT_SECRET = 'games-test-secret';
 const express = require('express');
 const db = require('../config/database');
 const initDb = require('../config/initDb');
-const { signToken } = require('../config/jwt');
+const { wp } = require('../config/auth');
 const gameRoutes = require('./games');
 
 let base;
@@ -22,7 +22,7 @@ test.before(async () => {
     `INSERT INTO users (email, username, password_hash, role, is_active)
      VALUES ('cap@example.com', 'cap', 'x', 'player', true) RETURNING id, username, role`
   , [])).rows[0];
-  token = signToken(user);
+  token = wp.session.mint(user); // the session cookie a sign-in would set
   const app = express();
   app.use(express.json());
   app.use('/api/games', gameRoutes);
@@ -35,7 +35,7 @@ test.after(() => new Promise((resolve) => server.close(resolve)));
 const create = async (body) => {
   const res = await fetch(`${base}/create`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Cookie: `${wp.session.name}=${token}` },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };

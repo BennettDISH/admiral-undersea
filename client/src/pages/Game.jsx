@@ -85,7 +85,7 @@ function Game({ user }) {
 
   useEffect(() => {
     loadGame()
-    connectSocket()
+    connectSocket(user.id)
     // A rejoin also gets this team's game-state back, which applyState hydrates from.
     const stopJoining = joinGameOnConnect(socket, code)
 

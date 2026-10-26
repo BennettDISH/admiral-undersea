@@ -1,5 +1,5 @@
 // The per-socket event cap (sockets/rateLimit.js): the bucket itself, and that the socket
-// handlers drop a flood instead of running it. DB and JWT are mocked as in
+// handlers drop a flood instead of running it. The DB is mocked as in
 // game.integration.test.js; no Postgres needed.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -16,8 +16,6 @@ require.cache[dbPath] = {
     },
   },
 };
-const jwtPath = require.resolve('../config/jwt');
-require.cache[jwtPath] = { id: jwtPath, filename: jwtPath, loaded: true, exports: { verifyToken: () => ({ id: 1, username: 'x' }) } };
 
 const { tokenBucket, SOCKET_BURST, SOCKET_PER_SECOND } = require('./rateLimit');
 const setupGameSockets = require('./game');

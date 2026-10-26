@@ -2,7 +2,9 @@
 // This file owns: auth, rooms, DB reads/writes, timers, automation, and mapping
 // engine event lists to io emits. All game RULES live in the engine and are unit-tested.
 const db = require('../config/database');
-const { verifyToken } = require('../config/jwt');
+const { originAllowed } = require('fleet-kit/server');
+const { wp } = require('../config/auth');
+const { corsOrigin } = require('../config/origin');
 const engine = require('../game/engine');
 const { getSystemMax, DEFAULT_PRIORITY, REQUIRED_ROLES, TUNABLES } = require('../game/constants');
 const { tokenBucket } = require('./rateLimit');
@@ -332,13 +334,20 @@ function setupGameSockets(io) {
   }
 
   // ---- socket auth ---------------------------------------------------------
-  io.use((socket, next) => {
+  // The same session cookie as the REST API, which the browser sends with the handshake. A page
+  // on another site could open a socket that carries it, and CORS does not cover a WebSocket
+  // upgrade, so the handshake's Origin has to be this game's own (fleet-kit's originAllowed), or
+  // the FRONTEND_URL a client hosted elsewhere is allowed from (config/origin.js).
+  const otherFrontEnd = corsOrigin();
+  const fromHere = (req) => originAllowed(req) || (typeof otherFrontEnd === 'string' && req.headers.origin === otherFrontEnd);
+  io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.auth && socket.handshake.auth.token;
-      if (!token) return next(new Error('Authentication required'));
-      const payload = verifyToken(token);
-      socket.userId = payload.id;
-      socket.username = payload.username;
+      if (!fromHere(socket.request)) return next(new Error('This game only takes connections from its own pages'));
+      const found = await wp.session.resolve(socket.request);
+      if (found.failed) return next(new Error('Could not check your session'));
+      if (!found.user) return next(new Error('Authentication required'));
+      socket.userId = found.user.id;
+      socket.username = found.user.username;
       next();
     } catch (err) {
       next(new Error('Invalid or expired session'));

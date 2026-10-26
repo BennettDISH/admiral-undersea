@@ -3,38 +3,25 @@
 // row in every table is compared, before and after, and must be there unchanged.
 const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
-const { startWaypoint } = require('./fakeWaypoint');
-const { checkGuests } = require('./guestCheck');
+const { checkGuests } = require('fleet-kit/server');
 
-// Waypoint is a stand-in (fakeWaypoint.js) that, unless a test says otherwise, calls every idle guest
-// an unclaimed guest.
+// Waypoint is fleet-kit's stand-in that, unless a test says otherwise, calls every idle guest
+// an unclaimed guest; sign-ins go to it too.
 let waypoint;
+let startFakeWaypoint;
 before(async () => {
-  waypoint = await startWaypoint();
+  ({ startFakeWaypoint } = await import('fleet-kit/test/fakeWaypoint'));
+  waypoint = await startFakeWaypoint();
   Object.assign(process.env, waypoint.env());
 });
 after(() => waypoint.close());
 beforeEach(() => waypoint.reset());
+/** What the sweep asked Waypoint: the id lists it sent. */
+const asked = () => waypoint.requests.filter((r) => r.path === '/api/auth/proxy/guests').map((r) => r.body);
 
 process.env.USE_PGLITE = '1';
 process.env.JWT_SECRET = 'sweep-test-secret';
 delete process.env.PGLITE_DIR;
-
-// Sign-ins go to a stand-in Waypoint that answers with `central.login`.
-const central = {};
-const ssoPath = require.resolve('../config/sso');
-require.cache[ssoPath] = {
-  id: ssoPath, filename: ssoPath, loaded: true,
-  exports: {
-    SSO_ENABLED: true,
-    AUTH_SERVICE_URL: 'http://auth.invalid',
-    SSO_CLIENT_ID: 'test-client',
-    centralRegister: async () => { throw new Error('not used'); },
-    centralLogin: (body) => central.login(body),
-    centralGuest: async () => { throw new Error('not used'); },
-    exchangeCode: async () => { throw new Error('not used'); },
-  },
-};
 
 const database = require('../config/database');
 const initDb = require('../config/initDb');
@@ -137,16 +124,14 @@ test('an idle guest goes with what only guests touched; an active guest, a real 
 
 test('every Waypoint sign-in notes the time, and a new user is seen when it is made', async () => {
   const express = require('express');
-  const cookieParser = require('cookie-parser');
   const authRoutes = require('../routes/auth');
   const app = express();
   app.use(express.json());
-  app.use(cookieParser());
   app.use('/api/auth', authRoutes);
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   try {
-    const account = { central_user_id: 4242, email: 'stamp@example.com', username: 'stamper' };
-    central.login = async () => ({ ...account });
+    const account = { central_user_id: 4242, email: 'stamp@example.com', username: 'stamper', password: 'pw' };
+    waypoint.addUser(account);
     const login = () => fetch(`http://127.0.0.1:${server.address().port}/api/auth/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: account.email, password: 'pw' }),
     });
@@ -166,7 +151,7 @@ test('the window is never shorter than a session, and a dry run takes nothing', 
   const was = await everything();
   const dry = await sweepGuests({ db, days: 1, dryRun: true });
   assert.equal(dry.removed, 0);
-  await sweepGuests({ db, days: 1 }); // a 1-day setting still waits out the 7-day session
+  await sweepGuests({ db, days: 1 }); // a 1-day setting still waits out the 30-day session
   assert.deepEqual(gone(was, await everything()), {});
   assert.ok(await one(`SELECT 1 FROM ${USERS} WHERE id = $1`, [recent.id]));
   await assert.rejects(sweepGuests({ db, days: 0 }), /GUEST_RETENTION_DAYS must be a positive number/);
@@ -195,7 +180,7 @@ const guestGone = async (id) => !(await one('SELECT 1 FROM users WHERE id = $1',
 /** A guest here is told by its name, so there is no flag to clear: a claimed guest's row is untouched. */
 const accountsKept = async () => {};
 
-// Waypoint's word decides who may go (guestCheck.js): the stand-in answers per central id.
+// Waypoint's word decides who may go (fleet-kit's checkGuests): the stand-in answers per central id.
 
 /** Takes whatever idle guests earlier tests left, with the stand-in at its default. */
 async function settle() {
@@ -221,8 +206,8 @@ test('a guest who claimed on Waypoint stays; one Waypoint has forgotten goes', a
   assert.equal(await ownGone(plain.own), true);
   assert.equal(r.claimed, 1);
   assert.equal(r.removed, 2);
-  assert.equal(waypoint.requests.length, 1);
-  for (const x of [claimed, forgotten, plain]) assert.ok(waypoint.requests[0].ids.includes(Number(x.central)), 'every idle guest was asked about');
+  assert.equal(asked().length, 1);
+  for (const x of [claimed, forgotten, plain]) assert.ok(asked()[0].ids.includes(Number(x.central)), 'every idle guest was asked about');
 });
 
 test('a guest Waypoint does not link to this app stays, with what it made, and is logged', async (t) => {
@@ -286,7 +271,7 @@ test('no answer in time, an unreachable Waypoint and no configuration mean nobod
   assert.match(slow.held, /did not answer/);
   const off = await sweep({ check: (list) => checkGuests(list, { env: {} }) });
   assert.match(off.held, /not configured/);
-  const dead = await startWaypoint();
+  const dead = await startFakeWaypoint();
   const env = dead.env();
   await dead.close();
   const down = await sweep({ check: (list) => checkGuests(list, { env }) });

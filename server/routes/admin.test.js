@@ -9,8 +9,11 @@ process.env.JWT_SECRET = 'admin-test-secret';
 const express = require('express');
 const db = require('../config/database');
 const initDb = require('../config/initDb');
-const { signToken } = require('../config/jwt');
+const { wp } = require('../config/auth');
 const adminRoutes = require('./admin');
+
+// The session cookie a sign-in would set for this account (fleet-kit's session).
+const sessionCookie = (user) => `${wp.session.name}=${wp.session.mint(user)}`;
 
 const ADMIN_CENTRAL = 900;
 let base;
@@ -66,7 +69,7 @@ test.after(() => new Promise((resolve) => server.close(resolve)));
 test.beforeEach(() => { process.env.ADMIN_CENTRAL_USER_IDS = ` ${ADMIN_CENTRAL}, 77 `; });
 
 const get = async (path, user) => {
-  const headers = user ? { Authorization: `Bearer ${signToken(user)}` } : {};
+  const headers = user ? { Cookie: sessionCookie(user) } : {};
   const res = await fetch(`${base}${path}`, { headers });
   const text = await res.text();
   return { status: res.status, text, body: JSON.parse(text) };

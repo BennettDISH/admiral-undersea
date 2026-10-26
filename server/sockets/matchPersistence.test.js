@@ -1,7 +1,7 @@
 // Matches across a restart: the adapter (sockets/game.js) writes a match to the database as it
 // changes, and a player who joins after a restart gets it back, with the lobby's automated
 // roles. A "restart" here is a second copy of the adapter, with its own memory, over the same
-// fake database. DB and JWT are mocked as in game.integration.test.js; no Postgres needed.
+// fake database. The DB is mocked as in game.integration.test.js; no Postgres needed.
 const test = require('node:test');
 const assert = require('node:assert');
 const engine = require('../game/engine');
@@ -48,8 +48,6 @@ require.cache[dbPath] = {
     },
   },
 };
-const jwtPath = require.resolve('../config/jwt');
-require.cache[jwtPath] = { id: jwtPath, filename: jwtPath, loaded: true, exports: { verifyToken: () => ({ id: 1, username: 'x' }) } };
 
 // ---- a server boot: a fresh copy of the adapter, as a restart makes -------------------------
 function boot() {
