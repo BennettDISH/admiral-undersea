@@ -62,6 +62,12 @@ app.get('/api/health', healthHandler());
 // An /api path no route answered is a JSON 404, not the app's page.
 app.use('/api', apiNotFound);
 
+// Vite names every built asset after its content, so a browser can keep them for good instead
+// of re-checking the whole bundle on each visit. A missing one is a 404: index.html in its
+// place is a page the browser refuses to run as a script.
+app.use('/assets', express.static(path.join(__dirname, '../client/dist/assets'), { immutable: true, maxAge: '1y' }));
+app.use('/assets', (req, res) => res.status(404).end());
+
 // Serve static files from React build
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
