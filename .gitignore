@@ -29,3 +29,6 @@ coverage/
 *.tmp.*
 scratch*
 .claude/settings.local.json
+
+# npm install at the root (no dependencies there) writes one; it is not kept
+/package-lock.json
