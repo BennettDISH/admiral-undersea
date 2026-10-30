@@ -10,7 +10,7 @@ React 18 + Vite 8 (client) · Express + socket.io (server, real-time multiplayer
 fleet-kit (Waypoint sign-in, the cookie session, headers, limits, log, errors, health, the top bar)
 
 Monorepo with separate `client/` and `server/` packages. fleet-kit is vendored as
-`server/vendor/fleet-kit-1.0.0.tgz` and both packages install that one file (the server
+`server/vendor/fleet-kit-1.0.7.tgz` and both packages install that one file (the server
 `require`s its CommonJS build; the client imports `fleet-kit/client/topbar`). Once it is
 published, both take `github:BennettDISH/fleet-kit#v1.0.0` and the vendor folder goes. A kit
 change is a new kit version, never a re-packed tarball; never edit the kit here.
