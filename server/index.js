@@ -77,8 +77,9 @@ app.use('/api', apiNotFound());
 
 // The site admin's page, decided before the page goes out: signed out → sign in and back,
 // anyone else → a plain 403 with nothing of the admin area in it. Its data asks again
-// (/api/admin).
-app.use(wp.adminPage({ pages: /^\/admin\/?$/ }));
+// (/api/admin). Any case: Express routes /ADMIN to the page as well, and the client's router
+// opens the admin screen for it.
+app.use(wp.adminPage({ pages: /^\/admin\/?$/i }));
 
 // Vite names every built asset after its content, so a browser can keep them for good instead
 // of re-checking the whole bundle on each visit. A missing one is a 404: index.html in its

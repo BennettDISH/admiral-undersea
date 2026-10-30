@@ -62,3 +62,12 @@ test('index.js mounts the log and the headers first, the 404 after the routes an
   assert.ok(at(/app\.use\(spaFallback\(/) < at(/app\.use\(errorHandler\(/));
   assert.ok(!/morgan|helmet/.test(source), 'morgan and helmet are gone');
 });
+
+test('the /admin gate covers every spelling Express routes to the page (any case, a trailing slash)', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+  const m = /adminPage\(\{ pages: \/(.+?)\/([a-z]*) \}\)/.exec(source);
+  assert.ok(m, 'index.js gates /admin with a pages pattern');
+  const pages = new RegExp(m[1], m[2]);
+  for (const url of ['/admin', '/admin/', '/ADMIN', '/Admin/']) assert.ok(pages.test(url), url);
+  for (const url of ['/administrator', '/admin/x', '/api/admin']) assert.ok(!pages.test(url), url);
+});
