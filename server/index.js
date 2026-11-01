@@ -136,3 +136,6 @@ function scheduleMatchSweep() {
 }
 
 start();
+
+// For security.test.js, which walks the real routes.
+module.exports = { app, httpServer };

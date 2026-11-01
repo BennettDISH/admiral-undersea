@@ -69,7 +69,8 @@ No Postgres handy? `cd server && npm run dev:local` runs the server on an in-pro
 database (`PGLITE_DIR` to keep it on disk).
 
 Test: `cd server && npm test` (the rules engine, the socket adapter and handshake, sign-in against
-fleet-kit's stand-in Waypoint, admin, games, the guest sweep), and `cd client && npm test`.
+fleet-kit's stand-in Waypoint, admin, games, the guest sweep, and fleet-kit's security checks on
+the real routes in `server/security.test.js`), and `cd client && npm test`.
 
 Production: `npm run build` (builds client), then `npm start` (serves `client/dist` via `server/index.js`).
 
