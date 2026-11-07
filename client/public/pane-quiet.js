@@ -4,7 +4,15 @@
 // elements play muted. Add ?sound=1 to the address to hear it. Any other browser is left alone.
 // Source: games-media/runtime/pane-quiet.js. Each game keeps a copy, loaded before any game code.
 (() => {
-  if (!/\bClaude\/\d/.test(navigator.userAgent) || /[?&]sound=1(&|$)/.test(location.search)) return;
+  if (/[?&]sound=1(&|$)/.test(location.search)) return;
+  const ua = navigator.userAgent;
+  // Below 768 px wide the pane emulates a phone, and its Android user agent drops the Claude/<n> token.
+  // Emulation leaves two things alone: navigator.platform still names the desktop, and window.chrome is
+  // still Electron's empty object (Chrome, Edge and Brave give it loadTimes, csi and app; Firefox and
+  // Safari have none). A real phone's platform never starts with Win or Mac, so phones keep their sound.
+  const emulatedPhone = /Android|iPhone|iPad/.test(ua) && /^(Win|Mac)/.test(navigator.platform)
+    && !!window.chrome && Object.keys(window.chrome).length === 0;
+  if (!/\bClaude\/\d/.test(ua) && !emulatedPhone) return;
   const Real = window.AudioContext || window.webkitAudioContext;
   if (Real) {
     class QuietAudioContext extends Real {
