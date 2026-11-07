@@ -75,6 +75,14 @@ async function sweepMatches(now = Date.now()) {
 const ROLE_IDS = ['captain', ...REQUIRED_ROLES];
 const pickFrom = (list, allowed) => (Array.isArray(list) ? [...new Set(list.filter((x) => allowed.includes(x)))] : null);
 
+// Every play belongs to one station, and only a player who picked that station in the lobby
+// makes it. A player may hold several (one phone playing the whole crew, as a same-room table
+// often does). A refusal says whose job it is, so the player sees why nothing happened.
+const STATION_NAMES = { captain: 'Captain', 'first-mate': 'First Mate', engineer: 'Engineer', 'radio-operator': 'Radio Operator' };
+const notYourStation = (action, station, doing) => ({
+  action, reason: 'not-your-station', station, message: `Only the ${STATION_NAMES[station]} can ${doing}.`,
+});
+
 // Create or reuse a playable state, preserving automation/priority set in the lobby.
 function ensurePlayableState(gameCode, mode = 'turn-based', sameRoom = false) {
   let state = gameStates.get(gameCode);
@@ -356,6 +364,7 @@ function setupGameSockets(io) {
 
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id, 'user', socket.userId);
+    socket.roles = []; // no station until join-game reads this player's seat
 
     // Wrap handlers so a throw logs instead of crashing the process, and so a socket sending
     // faster than anyone plays has the excess dropped (sockets/rateLimit.js).
@@ -373,6 +382,17 @@ function setupGameSockets(io) {
     // a submarine (or set up a team) in any other game by code.
     const teamIn = (gameCode) => (gameCode && gameCode === socket.gameCode ? socket.team : null);
     const joined = (gameCode) => Boolean(gameCode) && gameCode === socket.gameCode;
+
+    // The team to play for when this socket holds `station` in that game, else null. A seated
+    // player at the wrong station is told whose job it is; anyone not seated hears nothing, as
+    // before. socket.roles is read with the team at join-game, and both reset on every join.
+    const stationIn = (gameCode, station, action, doing) => {
+      const team = teamIn(gameCode);
+      if (!team) return null;
+      if (socket.roles.includes(station)) return team;
+      socket.emit('action-rejected', notYourStation(action, station, doing));
+      return null;
+    };
 
     on('join-game', async ({ gameCode }) => {
       if (typeof gameCode !== 'string' || !gameCode) return;
@@ -450,10 +470,13 @@ function setupGameSockets(io) {
       if (gameResult.rows.length === 0) return;
       if (gameResult.rows[0].status !== 'lobby') return; // role assignment is a lobby action
       const rolesStr = roles.join(',');
-      await db.query(
-        `UPDATE game_players SET roles = $1 WHERE game_id = $2 AND user_id = $3`,
+      const seat = await db.query(
+        `UPDATE game_players SET roles = $1 WHERE game_id = $2 AND user_id = $3 RETURNING user_id`,
         [rolesStr, gameResult.rows[0].id, socket.userId],
       );
+      // Stations come with a seat: someone who has not picked a team yet holds none, or the
+      // socket would play a station the game has no record of them taking.
+      if (seat.rows.length === 0) return;
       socket.roles = roles;
       io.to(room).emit('roles-updated', { userId: socket.userId, username: socket.username, roles });
     });
@@ -476,6 +499,8 @@ function setupGameSockets(io) {
     on('set-system-priority', async ({ gameCode, team, systemPriority: picked }) => {
       if (team !== 'alpha' && team !== 'bravo') return;
       if (teamIn(gameCode) !== team) return; // only configure your own team, in your own game
+      // The automated first mate charges in the order its captain gives (the captain's panel).
+      if (!stationIn(gameCode, 'captain', 'set-priority', 'set the First Mate\'s charging order')) return;
       const systemPriority = pickFrom(picked, DEFAULT_PRIORITY);
       if (!systemPriority) return;
       let state = await hydrate(gameCode);
@@ -518,7 +543,7 @@ function setupGameSockets(io) {
 
     // ---- captain: move -----------------------------------------------------
     on('captain-move', async ({ gameCode, direction }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'captain', 'move', 'steer the sub');
       if (!team) return;
       if (!['N', 'S', 'E', 'W'].includes(direction)) return;
       let state = gameStates.get(gameCode);
@@ -561,8 +586,12 @@ function setupGameSockets(io) {
     });
 
     // ---- crew: confirm / charge / mark ------------------------------------
+    // The role named is the station saying aye, so it has to be one this player holds. A name
+    // that is no crew station goes on to the engine, which turns it down as bad-role.
     on('aye-captain', async ({ gameCode, role }) => {
-      const team = teamIn(gameCode);
+      const team = REQUIRED_ROLES.includes(role)
+        ? stationIn(gameCode, role, 'confirm', 'say aye for their station')
+        : teamIn(gameCode);
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -570,7 +599,7 @@ function setupGameSockets(io) {
     });
 
     on('charge-system', async ({ gameCode, system }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'first-mate', 'charge', 'charge systems');
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -578,7 +607,7 @@ function setupGameSockets(io) {
     });
 
     on('mark-damage', async ({ gameCode, slotId }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'engineer', 'mark-damage', 'mark breakdowns');
       if (!team) return;
       const state = gameStates.get(gameCode);
       const sub = state?.submarines?.[team];
@@ -591,7 +620,7 @@ function setupGameSockets(io) {
 
     // ---- captain: systems --------------------------------------------------
     on('fire-torpedo', async ({ gameCode, target }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'captain', 'fire-torpedo', 'fire torpedoes');
       if (!team || !target || typeof target.x !== 'number' || typeof target.y !== 'number') return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -599,7 +628,7 @@ function setupGameSockets(io) {
     });
 
     on('place-mine', async ({ gameCode, target }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'captain', 'place-mine', 'lay mines');
       if (!team || !target || typeof target.x !== 'number' || typeof target.y !== 'number') return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -607,7 +636,7 @@ function setupGameSockets(io) {
     });
 
     on('detonate-mine', async ({ gameCode, target }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'captain', 'detonate-mine', 'set off mines');
       if (!team || !target || typeof target.x !== 'number' || typeof target.y !== 'number') return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -615,7 +644,7 @@ function setupGameSockets(io) {
     });
 
     on('launch-drone', async ({ gameCode, sector }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'captain', 'launch-drone', 'launch drones');
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -623,7 +652,7 @@ function setupGameSockets(io) {
     });
 
     on('use-sonar', async ({ gameCode }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'captain', 'use-sonar', 'ping the sonar');
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -633,16 +662,23 @@ function setupGameSockets(io) {
       }
     });
 
+    // Any crew member may answer a ping (the game's prompt goes to every station), but a seat
+    // with no station is not crew.
     on('sonar-response', async ({ gameCode, facts }) => {
       const team = teamIn(gameCode);
       if (!team) return;
+      if (socket.roles.length === 0) {
+        return socket.emit('action-rejected', {
+          action: 'sonar-response', reason: 'no-station', message: 'Only crew with a station can answer the sonar.',
+        });
+      }
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
       apply(socket, gameCode, state, engine.resolveSonar(state, team, facts));
     });
 
     on('use-silence', async ({ gameCode, direction, distance }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'captain', 'use-silence', 'go silent');
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;
@@ -650,7 +686,7 @@ function setupGameSockets(io) {
     });
 
     on('surface', async ({ gameCode }) => {
-      const team = teamIn(gameCode);
+      const team = stationIn(gameCode, 'captain', 'surface', 'surface the sub');
       if (!team) return;
       const state = gameStates.get(gameCode);
       if (!state?.submarines?.[team]) return;

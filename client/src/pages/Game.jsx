@@ -183,8 +183,9 @@ function Game({ user }) {
     })
     socket.on('resurfaced', ({ team }) => { if (team === enemyTeamOf(myTeamRef.current)) setEnemySurfacedSector(null) })
 
-    socket.on('action-rejected', ({ action, reason }) => {
-      if (!QUIET_REJECTS.has(reason)) pushToast('miss', `${action}: ${reason.replace(/-/g, ' ')}`)
+    // A refusal the server words itself (e.g. another station's job) is shown as it says.
+    socket.on('action-rejected', ({ action, reason, message }) => {
+      if (!QUIET_REJECTS.has(reason)) pushToast('miss', message || `${action}: ${reason.replace(/-/g, ' ')}`)
     })
     socket.on('game-over', ({ winner }) => setResult({ winner }))
     socket.on('automated-roles-updated', ({ team, automatedRoles: roles }) => { if (team === myTeamRef.current) setAutomatedRoles(roles) })
@@ -744,7 +745,7 @@ function Game({ user }) {
       </div>
 
       {/* Sonar answer prompt (any crew member can answer for the enemy ping) */}
-      {sonarOwed && (
+      {sonarOwed && myRoles.length > 0 && (
         <div className="sonar-answer-modal">
           <div className="sonar-answer-card">
             <h3>🔊 Enemy pinged us — send a reply</h3>

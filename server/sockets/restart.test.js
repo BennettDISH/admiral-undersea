@@ -41,6 +41,7 @@ function captain(gameCode) {
   io._conn(socket);
   socket.gameCode = gameCode;
   socket.team = 'alpha';
+  socket.roles = ['captain'];
   return { socket, move: (direction) => handlers['captain-move']({ gameCode, direction }) };
 }
 

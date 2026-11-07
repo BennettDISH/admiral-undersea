@@ -16,7 +16,8 @@ let readDelay = false;
 
 function newGame(code, row = {}) {
   games[code] = { id: Object.keys(games).length + 1, code, status: 'lobby', game_mode: 'turn-based', same_room: false, created_by: 1, ...row };
-  seats[code] = { 1: { team: 'alpha', roles: 'captain' }, 2: { team: 'bravo', roles: 'captain' } };
+  // alpha's one player crews the whole sub; bravo's is its captain
+  seats[code] = { 1: { team: 'alpha', roles: 'captain,first-mate,engineer,radio-operator' }, 2: { team: 'bravo', roles: 'captain' } };
   return code;
 }
 const codeOfId = (id) => Object.keys(games).find((c) => games[c].id === id);

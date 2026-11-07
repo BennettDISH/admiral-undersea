@@ -12,6 +12,7 @@ require.cache[dbPath] = {
     query: async (text, params) => {
       dbCalls.push({ text, params });
       if (/from games/i.test(text)) return { rows: [{ id: 1, status: 'lobby', created_by: 1 }] };
+      if (/update game_players/i.test(text)) return { rows: [{ user_id: params[2] }] }; // the socket has a seat
       return { rows: [] };
     },
   },

@@ -15,6 +15,7 @@ require.cache[dbPath] = {
       dbCalls.push({ text, params });
       if (/from games/i.test(text) && /status/i.test(text)) return { rows: [{ id: 1, status: gameStatus, created_by: 1 }] }; // user 1 (alpha) made it
       if (/from games/i.test(text)) return { rows: [{ id: 1 }] };
+      if (/update game_players set roles/i.test(text)) return { rows: [{ user_id: params[2] }] }; // every socket here is seated
       return { rows: [] };
     },
   },
@@ -33,8 +34,10 @@ function harness() {
   };
   setupGameSockets(io);
 
-  // `gameCode` is the game this socket joined; its team only counts there.
-  const connect = (team, gameCode) => {
+  // `gameCode` is the game this socket joined; its team only counts there. A socket holds every
+  // station unless told otherwise, as one player crewing a whole sub does (stations.test.js
+  // covers what a player at only some of them may do).
+  const connect = (team, gameCode, roles = ['captain', 'first-mate', 'engineer', 'radio-operator']) => {
     const handlers = {};
     const socket = {
       id: `s-${team}`, userId: team === 'alpha' ? 1 : 2, username: team,
@@ -47,6 +50,7 @@ function harness() {
     io._conn(socket);
     socket.team = team; // bypass the DB-driven team assignment
     socket.gameCode = gameCode;
+    socket.roles = roles;
     return socket;
   };
 
