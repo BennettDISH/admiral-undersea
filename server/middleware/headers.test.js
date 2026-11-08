@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 const { trustOneProxy } = require('fleet-kit/server');
-const { securityHeaders, WIDGET_ORIGIN } = require('./securityHeaders');
+const { securityHeaders, WIDGET_ORIGIN, MEDIA_ORIGIN } = require('./securityHeaders');
 
 let base;
 let server;
@@ -25,7 +25,7 @@ test.after(() => new Promise((resolve) => { server.close(resolve); server.closeA
 
 const directive = (csp, name) => (csp.split(';').map((d) => d.trim()).find((d) => d.startsWith(`${name} `)) || '').split(/\s+/).slice(1);
 
-test('pages and API answers carry an enforced CSP that names the widget and Google Fonts only', async () => {
+test('pages and API answers carry an enforced CSP that names the widget, Google Fonts and the sounds\' host only', async () => {
   for (const url of ['/', '/api/health', '/api/nothing']) {
     const res = await fetch(base + url);
     const csp = res.headers.get('content-security-policy') || '';
@@ -34,6 +34,9 @@ test('pages and API answers carry an enforced CSP that names the widget and Goog
     assert.ok(directive(csp, 'script-src').includes(WIDGET_ORIGIN), `${url}: the widget may load`);
     assert.ok(!directive(csp, 'script-src').includes("'unsafe-inline'"), `${url}: no inline script`);
     assert.ok(directive(csp, 'connect-src').includes(WIDGET_ORIGIN), `${url}: the widget may report`);
+    assert.ok(directive(csp, 'connect-src').includes(MEDIA_ORIGIN), `${url}: the sounds may be fetched`);
+    assert.deepStrictEqual(directive(csp, 'connect-src').filter((s) => /^https?:/.test(s)).sort(), [MEDIA_ORIGIN, WIDGET_ORIGIN].sort(), `${url}: no other host to connect to`);
+    assert.ok(!directive(csp, 'media-src').includes('*'), `${url}: no wildcard media`);
     assert.ok(directive(csp, 'style-src').includes('https://fonts.googleapis.com'), `${url}: the font stylesheet`);
     assert.ok(directive(csp, 'font-src').includes('https://fonts.gstatic.com'), `${url}: the font files`);
     assert.ok(directive(csp, 'img-src').includes('blob:'), `${url}: the widget's screenshot is a blob:`);

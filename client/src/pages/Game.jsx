@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
+import { armAudio, getAudio } from '../lib/audio'
+import { AYE_GAP, AYE_PITCH, MOVE_HZ, blastFeedback } from '../game/blastFeedback'
 import socket, { connectSocket } from '../services/socket'
 import { joinGameOnConnect } from '../lib/gameRoom'
 import MapBoard from '../game/MapBoard'
@@ -19,6 +21,10 @@ const REQUIRED = ['first-mate', 'engineer', 'radio-operator']
 const cellKey = (x, y) => `${x},${y}`
 // action-rejected reasons that are just pacing noise, not worth a toast.
 const QUIET_REJECTS = new Set(['awaiting-confirmation', 'cooldown', 'crew-behind', 'already-charged'])
+
+// A blast felt through the hull: how far the page jolts and for how long.
+const SHAKES = { big: { px: 9, ms: 520 }, small: { px: 3, ms: 360 } }
+const reduceMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 function Game({ user }) {
   const { code } = useParams()
@@ -61,6 +67,38 @@ function Game({ user }) {
   const myTeamRef = useRef(null)
   const myRolesRef = useRef([])
   const idRef = useRef(0)
+  const gameStateRef = useRef(null)
+  const pageRef = useRef(null)
+  const flashRef = useRef(null)
+  // When the last "aye" is due: stations answering together (an automated crew does) take turns.
+  const ayeAtRef = useRef(0)
+
+  const audio = getAudio()
+  const soundPrefs = useSyncExternalStore(audio.subscribe, audio.snapshot, audio.snapshot)
+  // No sound before the first tap or key: then the boat's sounds load.
+  useEffect(() => armAudio(audio), [audio])
+
+  /** The page jolts with a blast; a big one also flashes red. Still for anyone who asked for less motion. */
+  const feelBlast = (shake, flash) => {
+    if (reduceMotion()) return
+    const s = SHAKES[shake]
+    const page = pageRef.current
+    if (s && page?.animate) {
+      const p = s.px
+      page.animate(
+        [
+          { transform: 'translate(0, 0)' },
+          { transform: `translate(${-p}px, ${p * 0.4}px)` },
+          { transform: `translate(${p * 0.8}px, ${-p * 0.5}px)` },
+          { transform: `translate(${-p * 0.5}px, ${p * 0.3}px)` },
+          { transform: `translate(${p * 0.3}px, 0)` },
+          { transform: 'translate(0, 0)' },
+        ],
+        { duration: s.ms, easing: 'ease-out' },
+      )
+    }
+    if (flash) flashRef.current?.animate?.([{ opacity: 0.6 }, { opacity: 0 }], { duration: 650, easing: 'ease-out' })
+  }
 
   const mode = gameState?.mode || game?.game_mode || 'turn-based'
   const isLive = mode === 'live'
@@ -90,6 +128,7 @@ function Game({ user }) {
     const stopJoining = joinGameOnConnect(socket, code)
 
     const applyState = (state) => {
+      gameStateRef.current = state
       setGameState(state)
       if (state.automatedRoles) setAutomatedRoles(state.automatedRoles)
       if (state.systemPriority) setSystemPriority(state.systemPriority)
@@ -121,11 +160,16 @@ function Game({ user }) {
     })
 
     socket.on('play-move-sound', ({ direction }) => {
-      if (myRolesRef.current.includes('radio-operator')) playMoveSound(direction)
+      if (myRolesRef.current.includes('radio-operator') && MOVE_HZ[direction]) audio.tone(MOVE_HZ[direction])
     })
 
     socket.on('role-confirmed', ({ team, role }) => {
-      if (team === myTeamRef.current) setConfirmedRoles((prev) => prev.includes(role) ? prev : [...prev, role])
+      if (team !== myTeamRef.current) return
+      setConfirmedRoles((prev) => prev.includes(role) ? prev : [...prev, role])
+      const now = performance.now() / 1000
+      const at = Math.max(now, ayeAtRef.current + AYE_GAP)
+      ayeAtRef.current = at
+      audio.play('aye', { pitch: AYE_PITCH[role] ?? 1, delay: at - now })
     })
     socket.on('turn-complete', ({ team }) => {
       if (team === myTeamRef.current) { setAwaitingConfirmation(false); setConfirmedRoles([]); setLastMove(null) }
@@ -155,16 +199,32 @@ function Game({ user }) {
     })
     socket.on('mine-placed', () => pushLog('info', 'Mine deployed'))
     socket.on('hull-damage', ({ team, source }) => {
-      if (team === myTeamRef.current) { pushToast('miss', `⚠️ Hull damage (${source})`); pushLog('attack', `Hull damage from ${source}`) }
+      if (team !== myTeamRef.current) return
+      pushToast('miss', `⚠️ Hull damage (${source})`); pushLog('attack', `Hull damage from ${source}`)
+      audio.play('creak')
+      feelBlast('small', false)
+    })
+    // Every torpedo and mine blast, as each boat feels it: the toasts and the log stay on the events above.
+    socket.on('blast-resolved', (blast) => {
+      const fx = blastFeedback(blast, myTeamRef.current, gameStateRef.current?.submarines?.[myTeamRef.current]?.position)
+      if (fx.launch) audio.play('torpedo')
+      audio.play(fx.boom, { vol: fx.vol, delay: fx.delay })
+      if (fx.creak) audio.play('creak', { delay: fx.delay + 0.45 })
+      if (fx.shake) setTimeout(() => feelBlast(fx.shake, fx.flash), fx.delay * 1000)
     })
 
     socket.on('drone-result', ({ sector, inSector }) => {
       setDroneReport({ sector, inSector })
       pushLog('drone', `Drone: enemy ${inSector ? 'IS' : 'is NOT'} in Sector ${sector}`)
+      audio.play('sonar', { pitch: 0.8 })
     })
-    socket.on('sonar-request', ({ askingTeam }) => { setSonarOwed({ askingTeam }); pushLog('sonar', 'Enemy pinged us with sonar — respond') })
+    socket.on('sonar-request', ({ askingTeam }) => {
+      setSonarOwed({ askingTeam }); pushLog('sonar', 'Enemy pinged us with sonar — respond')
+      audio.play('sonar')
+    })
     socket.on('sonar-answered', () => setSonarOwed(null)) // server accepted our reply
     socket.on('sonar-result', ({ facts }) => {
+      audio.play('sonar', { pitch: 0.94 })
       setSonarReport({ facts })
       pushLog('sonar', `Sonar reply: ${facts.map((f) => factLabel(f)).join(' OR ')} (one is false)`)
     })
@@ -200,7 +260,7 @@ function Game({ user }) {
       stopJoining()
       ;['game-state', 'game-started', 'move-announced', 'play-move-sound', 'role-confirmed', 'turn-complete',
         'system-charged', 'damage-marked', 'torpedo-hit', 'torpedo-miss', 'mine-exploded', 'mine-placed',
-        'hull-damage', 'drone-result', 'sonar-request', 'sonar-answered', 'sonar-result', 'silence-activated',
+        'hull-damage', 'blast-resolved', 'drone-result', 'sonar-request', 'sonar-answered', 'sonar-result', 'silence-activated',
         'surface-announced', 'forced-surface', 'resurfaced', 'action-rejected', 'game-over',
         'automated-roles-updated', 'automation-action',
       ].forEach((e) => socket.off(e))
@@ -220,19 +280,6 @@ function Game({ user }) {
         socket.team = me.team
       }
     } catch (err) { console.error('Failed to load game') }
-  }
-
-  const playMoveSound = (direction) => {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)()
-      const osc = ctx.createOscillator(); const gain = ctx.createGain()
-      osc.frequency.value = { N: 440, S: 330, E: 550, W: 220 }[direction]
-      osc.type = 'sine'
-      gain.gain.setValueAtTime(0.3, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5)
-      osc.connect(gain); gain.connect(ctx.destination)
-      osc.start(); osc.stop(ctx.currentTime + 0.5)
-    } catch { /* no audio context */ }
   }
 
   // ---- emit helpers --------------------------------------------------------
@@ -387,15 +434,28 @@ function Game({ user }) {
   const health = mySub?.health ?? 0
 
   return (
-    <div className="game-page">
+    <div className="game-page" ref={pageRef}>
+      <div className="hit-flash" ref={flashRef} aria-hidden="true" />
       <header className="game-header">
         <div className="team-info">
           <span className={`team-badge ${myTeam}`}>Team {myTeam?.toUpperCase()}</span>
           <span className="roles-badge">{myRoles.join(', ')}</span>
           <span className={`mode-badge ${mode}`}>{isLive ? '⚡ Live' : '🔄 Turn-Based'}</span>
         </div>
-        <div className="health-display">
-          Health: {'❤️'.repeat(Math.max(0, health))}{'🖤'.repeat(Math.max(0, MAX_HEALTH - health))}
+        <div className="header-right">
+          <div className="health-display">
+            Health: {'❤️'.repeat(Math.max(0, health))}{'🖤'.repeat(Math.max(0, MAX_HEALTH - health))}
+          </div>
+          <button
+            type="button"
+            className={`sound-toggle${soundPrefs.muted ? ' muted' : ''}`}
+            onClick={() => audio.toggleMute()}
+            aria-pressed={soundPrefs.muted}
+            aria-label={soundPrefs.muted ? 'Sound off. Turn sound on' : 'Sound on. Mute'}
+            title={soundPrefs.muted ? 'Sound off' : 'Sound on'}
+          >
+            {soundPrefs.muted ? '🔇' : '🔊'}
+          </button>
         </div>
       </header>
 

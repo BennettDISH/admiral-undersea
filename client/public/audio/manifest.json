@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "sounds": {
+    "sonar": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-sonar/admiral-sonar-1-1a96bea1.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-sonar/admiral-sonar-2-902b6241.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-sonar/admiral-sonar-3-2418862e.mp3"
+      ],
+      "gain": 0.6
+    },
+    "torpedo": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-torpedo/admiral-torpedo-1-8238795b.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-torpedo/admiral-torpedo-2-b85c0aa3.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-torpedo/admiral-torpedo-3-29806c3a.mp3"
+      ],
+      "gain": 0.7
+    },
+    "hit": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-hit/admiral-hit-1-a82c2fd5.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-hit/admiral-hit-2-f7466f33.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-hit/admiral-hit-3-0c465cab.mp3"
+      ],
+      "gain": 0.9
+    },
+    "far": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-near-miss/admiral-near-miss-1-e0d0f218.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-near-miss/admiral-near-miss-2-6b3378ef.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-near-miss/admiral-near-miss-3-1e50310e.mp3"
+      ],
+      "gain": 0.75
+    },
+    "creak": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-hull-creak/admiral-hull-creak-1-9aea836c.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-hull-creak/admiral-hull-creak-2-9ad87b76.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-hull-creak/admiral-hull-creak-3-036738af.mp3"
+      ],
+      "gain": 0.5
+    },
+    "aye": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-aye/admiral-aye-1-5f2d5664.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-aye/admiral-aye-2-d1d641bc.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-aye/admiral-aye-3-9ae175f5.mp3"
+      ],
+      "gain": 0.4
+    }
+  }
+}

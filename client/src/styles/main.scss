@@ -622,6 +622,38 @@ button {
   font-size: 1.2rem;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+// The boat's sound on and off; the setting stays on this device.
+.sound-toggle {
+  width: auto;
+  padding: 0.3rem 0.55rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  background: var(--steel-1);
+  border: 1px solid var(--steel-edge);
+  border-radius: 6px;
+  cursor: pointer;
+
+  &.muted {
+    opacity: 0.7;
+  }
+}
+
+// A blast that hurts the boat: the screen flashes red from the edges for a moment (Game.jsx animates it).
+.hit-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(255, 82, 82, 0) 35%, rgba(255, 82, 82, 0.55) 100%);
+}
+
 .game-content {
   padding: 1rem;
   display: flex;
