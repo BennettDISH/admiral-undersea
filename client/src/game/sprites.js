@@ -103,7 +103,7 @@ const api = {
    * `size` pixels across the set's longest side. For a one-shot, `t` is its age. False when the clip
    * has not loaded; a finished one-shot draws nothing and answers true.
    */
-  draw(ctx, name, t, x, y, angle, size, { once = false } = {}) {
+  draw(ctx, name, t, x, y, angle, size, { once = false, anchored = false } = {}) {
     const set = sets.get(clipIndex.get(name))
     const clip = set?.clips[name]
     if (!clip) return false
@@ -115,8 +115,9 @@ const api = {
     ctx.imageSmoothingEnabled = false
     ctx.translate(x, y)
     ctx.rotate(angle)
-    // centred on the clip's middle, whatever its anchor
-    blit(ctx, set, f, -((x0 + x1) / 2) * scale, -((y0 + y1) / 2) * scale, scale)
+    // a mover turns about its own anchor (a sub's hull, not its wake); anything else is centred
+    if (anchored) blit(ctx, set, f, 0, 0, scale)
+    else blit(ctx, set, f, -((x0 + x1) / 2) * scale, -((y0 + y1) / 2) * scale, scale)
     ctx.restore()
     return true
   },

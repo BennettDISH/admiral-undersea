@@ -265,8 +265,10 @@ function setMarker(state, team, cell) {
   const b = state.subs[team];
   if (cell === null) { b.marker = null; return ok([teamFx(team, 'marker', { marker: null })]); }
   if (!cell || !map.inBounds(cell.x, cell.y)) return reject('mark', 'bad-cell');
+  const moved = !b.marker || !sameCell(b.marker, cell);
   b.marker = { x: cell.x, y: cell.y, t: r1(state.t) };
-  return ok([teamFx(team, 'marker', { marker: b.marker })]);
+  // the same cell again only freshens the mark: nothing to announce
+  return ok(moved ? [teamFx(team, 'marker', { marker: b.marker })] : []);
 }
 
 function ping(state, team) {

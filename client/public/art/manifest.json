@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "sets": {
+    "fx-undersea": "https://media.bennettdishmanmedia.com/spellweave/art/fx-undersea/frames-ba03ac06.json",
+    "crew-helm": "https://media.bennettdishmanmedia.com/spellweave/art/crew-helm/frames-7d8a4adf.json",
+    "crew-helm-mouth-closed": "https://media.bennettdishmanmedia.com/spellweave/art/crew-helm-mouth-closed/frames-50c8a2e7.json",
+    "crew-helm-mouth-small": "https://media.bennettdishmanmedia.com/spellweave/art/crew-helm-mouth-small/frames-89599f25.json",
+    "crew-helm-mouth-open": "https://media.bennettdishmanmedia.com/spellweave/art/crew-helm-mouth-open/frames-62754503.json",
+    "crew-helm-blink": "https://media.bennettdishmanmedia.com/spellweave/art/crew-helm-blink/frames-6190c0ee.json",
+    "crew-listener": "https://media.bennettdishmanmedia.com/spellweave/art/crew-listener/frames-6d8f88cd.json",
+    "crew-listener-mouth-closed": "https://media.bennettdishmanmedia.com/spellweave/art/crew-listener-mouth-closed/frames-b7f05b88.json",
+    "crew-listener-mouth-small": "https://media.bennettdishmanmedia.com/spellweave/art/crew-listener-mouth-small/frames-4671a1fe.json",
+    "crew-listener-mouth-open": "https://media.bennettdishmanmedia.com/spellweave/art/crew-listener-mouth-open/frames-19eab70f.json",
+    "crew-listener-blink": "https://media.bennettdishmanmedia.com/spellweave/art/crew-listener-blink/frames-526766d7.json",
+    "crew-torpedo": "https://media.bennettdishmanmedia.com/spellweave/art/crew-torpedo/frames-495d60ec.json",
+    "crew-torpedo-mouth-closed": "https://media.bennettdishmanmedia.com/spellweave/art/crew-torpedo-mouth-closed/frames-a5d605b8.json",
+    "crew-torpedo-mouth-small": "https://media.bennettdishmanmedia.com/spellweave/art/crew-torpedo-mouth-small/frames-2b472ff6.json",
+    "crew-torpedo-mouth-open": "https://media.bennettdishmanmedia.com/spellweave/art/crew-torpedo-mouth-open/frames-9698c4ae.json",
+    "crew-torpedo-blink": "https://media.bennettdishmanmedia.com/spellweave/art/crew-torpedo-blink/frames-9f30bfe4.json",
+    "crew-chief": "https://media.bennettdishmanmedia.com/spellweave/art/crew-chief/frames-4b3e3e55.json",
+    "crew-chief-mouth-closed": "https://media.bennettdishmanmedia.com/spellweave/art/crew-chief-mouth-closed/frames-2227c6bb.json",
+    "crew-chief-mouth-small": "https://media.bennettdishmanmedia.com/spellweave/art/crew-chief-mouth-small/frames-fe1f6762.json",
+    "crew-chief-mouth-open": "https://media.bennettdishmanmedia.com/spellweave/art/crew-chief-mouth-open/frames-b77793ef.json",
+    "crew-chief-blink": "https://media.bennettdishmanmedia.com/spellweave/art/crew-chief-blink/frames-f459059c.json"
+  }
+}

@@ -61,7 +61,7 @@ export function Portrait({ station, talking, size = 88 }) {
         mouthUntil = now + 70 + Math.random() * 90
       }
       if (!talk) mouth = 'closed'
-      const set = `crew-${station}`
+      const set = `crew-${station === 'weapons' ? 'torpedo' : station}`
       ctx.clearRect(0, 0, size, size)
       if (!hasSet(set)) { drawStandIn(ctx, station, size, size, talk, blink); return }
       const bg = ctx.createLinearGradient(0, 0, 0, size)

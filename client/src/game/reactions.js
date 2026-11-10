@@ -188,9 +188,10 @@ export function react(ev, { team, boat, now = Date.now(), memory = newMemory() }
       log('damage', ev.damage ? 'We hit the rocks!' : 'Bumped a rock: all stop')
       break
     case 'helm':
-      if (every(memory, 'helm-lever', 200, now)) sound('ui.lever', { vol: 0.6 })
+      // the telegraph rings for a new speed; a course change is quiet
       if (memory.get('speed') !== ev.speed) {
         memory.set('speed', ev.speed)
+        sound('ui.lever', { vol: 0.6 })
         say(SPEED_LINES[ev.speed], 2500)
       }
       break

@@ -43,6 +43,11 @@ button.primary, .primary {
   .deck-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; > button { width: auto; min-width: 160px; } }
 }
 .deck-small { width: auto; }
+.sound-hint {
+  position: fixed; left: 1rem; bottom: 1rem; z-index: 90; width: auto; padding: 0.55rem 1rem;
+  background: linear-gradient(180deg, #2c4c3f, #16302a); border-color: var(--sonar); color: #eafff4;
+  box-shadow: 0 0 16px rgba(55, 240, 160, 0.35); animation: lampblink 1.6s steps(1) 3;
+}
 .deck-note { @extend %plate; padding: 0.6rem 1rem; color: var(--amber); margin: 0 auto 1rem; max-width: 640px; }
 
 .home-page.deck {

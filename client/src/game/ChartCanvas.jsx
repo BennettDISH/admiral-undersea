@@ -102,12 +102,21 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
       for (let x = 0; x < 16; x++) ctx.fillText('ABCDEFGHIJKLMNOP'[x], cx(x), oy * 0.5)
       for (let y = 0; y < 12; y++) ctx.fillText(String(y + 1), ox * 0.5, cy(y))
 
-      // vents under, rocks over
-      for (let y = 0; y < 12; y++) for (let x = 0; x < 16; x++) if (map.isVent(x, y)) drawVent(ctx, x, y, s, ox, oy, t)
+      // vents under (the factory's shimmer over our glow), rocks over
+      const sprites = getSprites()
+      for (let y = 0; y < 12; y++) {
+        for (let x = 0; x < 16; x++) {
+          if (!map.isVent(x, y)) continue
+          drawVent(ctx, x, y, s, ox, oy, t)
+          ctx.save()
+          ctx.globalAlpha = 0.45
+          sprites.draw(ctx, 'vent', t + (x * 7 + y * 3) * 0.13, ox + x * s, oy + y * s, 0, s, { anchored: true })
+          ctx.restore()
+        }
+      }
       for (let y = 0; y < 12; y++) for (let x = 0; x < 16; x++) if (map.isRock(x, y)) drawRock(ctx, map, x, y, s, ox, oy)
 
       // the bearings we heard: a fan from where we were, fading with age
-      const sprites = getSprites()
       for (const c of cs || []) {
         const age = v.t - c.t
         if (age > CONTACT_TTL || age < -1) continue
@@ -183,7 +192,7 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
           if (age > 1) {
             for (const f of v.ping.found) {
               ctx.globalAlpha = Math.max(0, 1 - (age - 1) / 7)
-              if (f.kind === 'bio') drawWhale(ctx, cx(f.x), cy(f.y), 0, s * 0.9, t)
+              if (f.kind === 'bio') { if (!sprites.draw(ctx, 'whale', t, cx(f.x), cy(f.y), 0, s * 1.3, { anchored: true })) drawWhale(ctx, cx(f.x), cy(f.y), 0, s * 0.9, t) }
               else {
                 ctx.fillStyle = f.kind === 'boat' || f.kind === 'torpedo' ? PALETTE.alarm : PALETTE.amber
                 ctx.beginPath()
@@ -230,13 +239,13 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
           const by = cy(pos.y) - Math.sin(ang) * s * 0.3 * i
           ctx.beginPath(); ctx.arc(bx, by, 1 + i * 0.4, 0, Math.PI * 2); ctx.stroke()
         }
-        if (!sprites.draw(ctx, 'torpedo', t, cx(pos.x), cy(pos.y), ang, s * 0.6)) drawTorpedo(ctx, cx(pos.x), cy(pos.y), ang, s * 0.55, t)
+        if (!sprites.draw(ctx, 'torpedo', t, cx(pos.x), cy(pos.y), ang, s * 1.05, { anchored: true })) drawTorpedo(ctx, cx(pos.x), cy(pos.y), ang, s * 0.55, t)
       }
       for (const d of v.decoys) {
         ctx.save()
         ctx.fillStyle = PALETTE.amber
         ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 12)
-        if (!sprites.draw(ctx, 'decoy', t, cx(d.x), cy(d.y), 0, s * 0.4)) { ctx.beginPath(); ctx.arc(cx(d.x), cy(d.y), s * 0.12, 0, Math.PI * 2); ctx.fill() }
+        if (!sprites.draw(ctx, 'decoy', t, cx(d.x), cy(d.y), 0, s * 0.65, { anchored: true })) { ctx.beginPath(); ctx.arc(cx(d.x), cy(d.y), s * 0.12, 0, Math.PI * 2); ctx.fill() }
         ctx.restore()
       }
 
@@ -262,7 +271,8 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
       ctx.beginPath(); ctx.arc(bx, by, s * 0.62, 0, Math.PI * 2); ctx.stroke()
       ctx.beginPath(); ctx.moveTo(bx + Math.cos(ang) * s * 0.7, by + Math.sin(ang) * s * 0.7); ctx.lineTo(bx + Math.cos(ang) * s * 1.05, by + Math.sin(ang) * s * 1.05); ctx.stroke()
       ctx.restore()
-      if (!sprites.draw(ctx, live.current.team === 'bravo' ? 'sub-red' : 'sub-blue', t, bx, by, ang, s * 1.05)) drawSub(ctx, bx, by, ang, s * 0.95, colour, t, { glow: true })
+      // the factory's hull is 28 of its 42 px with the wash: one cell long
+      if (!sprites.draw(ctx, live.current.team === 'bravo' ? 'sub-red' : 'sub-blue', t, bx, by, ang, s * 1.5, { anchored: true })) drawSub(ctx, bx, by, ang, s * 0.95, colour, t, { glow: true })
 
       // the torpedo room's aim: range, the line of fire and what is wrong with it
       if (m === 'aim' || m === 'guide') {
@@ -292,7 +302,9 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
       for (const e of fxList || []) {
         const age = (nowMs - e.at) / 1000
         if (e.kind === 'blast') {
-          if (!sprites.draw(ctx, 'blast', age, cx(e.x), cy(e.y), 0, s * 2.4, { once: true })) drawBlast(ctx, cx(e.x), cy(e.y), s, age)
+          // the factory's blast over our shock ring and bubbles (a blast reaches one cell all round)
+          drawBlast(ctx, cx(e.x), cy(e.y), s, age)
+          sprites.draw(ctx, 'blast', age, cx(e.x), cy(e.y), 0, s * 3, { once: true })
         }
       }
 

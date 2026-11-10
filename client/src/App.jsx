@@ -14,6 +14,16 @@ import { disconnectSocket } from './services/socket'
 import { HOLD_KEY, returnPath, startWaypoint } from './lib/signIn'
 import { logoutAllUrl } from './lib/topBar'
 import { armAudio, getAudio } from './lib/audio'
+import { useSoundUnlocked } from './lib/useScene'
+
+// A page reached by a link (an invite, a reload mid-match) has no sound until a first click:
+// say so, except on the deck, which has its own "Come aboard".
+function SoundHint() {
+  const unlocked = useSoundUnlocked()
+  const { pathname } = useLocation()
+  if (unlocked || pathname === '/' || pathname === '/login' || pathname === '/register') return null
+  return <button className="sound-hint" onClick={() => getAudio().unlock()}>🔈 Click anywhere for the boat's sound</button>
+}
 
 // The whole site has sound: the first click or key anywhere opens it (lib/audio.js), and every
 // console button clicks like a switch.
@@ -108,6 +118,7 @@ function App() {
         onSignOut={handleSignOut}
         onSignOutAll={handleSignOutAll}
       />
+      <SoundHint />
       <Routes>
         <Route
           path="/login"
