@@ -18,8 +18,19 @@ published, both take `github:BennettDISH/fleet-kit#v1.0.0` and the vendor folder
 change is a new kit version, never a re-packed tarball; never edit the kit here.
 
 ## How it plays (rebuilt 2026-11)
-- **The chart**: 16 by 12 cells (two charts: The Black Shelf, The Narrows) with rocks, thermal vent
-  fields that hide a slow boat's noise, and whales whose song is a false contact.
+- **The deck** offers the **Tutorial** (a guided first dive against a training boat on its own
+  open chart, The Training Range: the helm, listening, the charge that shows why you never charge,
+  the torpedo room, the engine room), **Play against AI** with a pick of Easy, Normal or Hard (a
+  scripted computer crew, `server/game/ai.js`), and **Crew against crew**.
+- **The chart**: 16 by 12 cells (two charts dealt at random: The Black Shelf, The Narrows) with
+  rocks, thermal vent fields that hide a slow boat's noise, and whales whose song is a false contact.
+- **The hunt matters**: speed is noise. At Full a boat is heard across the sea, its own flow noise
+  leaves it hearing less than half as far (with wider bearings), and a torpedo's seeker hears it.
+  A torpedo arms only after 3 cells (a shot from closer is refused), and once armed its seeker turns
+  onto a decoy, or a boat at Half within 1.5 cells or at Full within 3, ahead of it; a slow boat,
+  or a fast one in a vent field, slips past. The Normal and Hard crews shoot straight back down a
+  loud bearing, so charging in loses; `node server/game/playtest.js 100` plays scripted players
+  (careful, charging, rushing, a first-timer) against each crew, and `balance.test.js` holds it.
 - **Noise and bearings**: every move, launch, ping and vent is a noise. A boat that hears it gets a
   contact: a wedge along the bearing from where it was, sharper the louder the noise. Two bearings
   from two places cross on the enemy. A ping shows everything within 6 cells exactly, and tells
@@ -35,8 +46,9 @@ change is a new kit version, never a re-packed tarball; never edit the kit here.
 - A torpedo blast does 2 on its cell and 1 beside it; five hull sinks a boat; after ten minutes the
   boat with more hull wins. Crew calls ("more power to the engines!", "evade!") go to the whole
   boat, and the auto-crew answers them.
-- **The auto-crew** runs every station nobody holds, and the AI's boat (a green or a veteran crew).
-  It keeps a belief map of where the enemy could be, built only from what its own boat heard.
+- **The auto-crew** runs every station nobody holds, and the AI's boat (Easy, Normal or Hard: how
+  well it listens, how fast it reacts, how well it aims and how it slips a torpedo). It keeps a
+  belief map of where the enemy could be, built only from what its own boat heard.
 
 The rules live in a pure, DB-free engine (`server/game/engine.js`, ticked ten times a second; the
 auto-crew in `ai.js`) with unit tests (`cd server && npm test`); `server/sockets/game.js` runs the
@@ -125,10 +137,10 @@ same station.
 - `client/src/pages/` — Home (the deck), Login, Register, CreateGame, JoinGame, Lobby (the muster), Game (the control room), Admin (`/admin`; `client/src/lib/adminGate.js` decides what it shows).
 - `client/src/game/` — `rules.js` (the client's copy of the rules), `useMatch.js` (a match from the socket), `ChartCanvas.jsx` and `draw.js` (the chart table), `Scope.jsx` (the hydrophone scope), `Stations.jsx` (the four consoles), `CrewPanel.jsx` (the talking faces), `reactions.js` (what each event sounds and looks like), `voice.js` (the crew's lines), `sprites.js` (sprite-factory art).
 - `client/src/lib/` — `audio.js` and `soundNames.js` (the site's sound), `useScene.js`, the shared games top bar (fleet-kit's `<fleet-topbar>`, with the menu taken over so Sign out holds the sign-in page and drops the socket), Waypoint sign-in decisions (`signIn.js`), joining a game's room. `client/src/services/api.js` asks `/api/auth/me` once on load (handing over an old token once).
-- `server/game/` — `engine.js` (the rules), `ai.js` (the auto-crew), `map.js` (charts, steps, bearings, routes), `modes.js` (vs-ai, vs-ai-veteran, crews), `constants.js` (+ `*.test.js`).
+- `server/game/` — `engine.js` (the rules), `ai.js` (the auto-crew and the AI's Easy / Normal / Hard crews), `tutorial.js` (the guided first dive: its lessons, goals and training boat; the words are `client/src/game/tutorial.js`), `map.js` (charts, steps, bearings, routes), `modes.js` (tutorial, vs-ai-easy, vs-ai-normal, vs-ai-hard, crews; older games' vs-ai and vs-ai-veteran play as Easy and Hard), `playtest.js` (scripted players for balance), `constants.js` (+ `*.test.js`).
 - `server/sockets/game.js` — the clock that ticks every running match ten times a second (paused when nobody is aboard), the socket.io adapter over the engine; the handshake reads the session cookie and checks the Origin; `rateLimit.js` caps events per socket. It plays from memory and writes each match to Postgres every few seconds. Each play is taken only from a player holding its station in the game they joined, one player may hold several, a refusal comes back as `action-rejected` with a `message`, and a station whose people have all left is handed to the auto-crew until one comes back.
 - `server/config/auth.js` — fleet-kit's `createWaypoint` (app `au`, callback `/auth/callback`, guests allowed): the users row by central id (adopting an unclaimed pre-Waypoint row by email), who is a guest (by Waypoint's generated name), the session's row read, sign-out, renewal and the old-token reader.
-- `server/routes/` — `auth.js` (the game's own password sign-in and Register, then fleet-kit's router: config, sso/login, me, logout, logout-all, guest), `games.js` (making a game, with the lobby cap; reading one), `admin.js` (look-only admin views: users, games, and the environment switches shown on or off). `server/index.js` mounts fleet-kit's trust proxy 1, request log, write guard, health (`GET /api/health`: a `SELECT 1` within 3 s, 200 or 503, no database text), JSON 404, admin page gate, SPA fallback and error handler; `server/middleware/securityHeaders.js` is fleet-kit's headers with the game's CSP additions.
+- `server/routes/` — `auth.js` (the game's own password sign-in and Register, then fleet-kit's router: config, sso/login, me, logout, logout-all, guest), `games.js` (making a game, with the caps: 10 open lobbies and 60 games a day per person, each answer saying how many so the lobby warns first; reading one), `admin.js` (look-only admin views: users, games, and the environment switches shown on or off). `server/index.js` mounts fleet-kit's trust proxy 1, request log, write guard, health (`GET /api/health`: a `SELECT 1` within 3 s, 200 or 503, no database text), JSON 404, admin page gate, SPA fallback and error handler; `server/middleware/securityHeaders.js` is fleet-kit's headers with the game's CSP additions.
 - `server/services/matchStore.js` — the `game_matches` table: a match saved so a deploy does not wipe it. `join-game` reads it back and the clock picks up where it was; a row from before the 2026-11 overhaul is not a match, and a game being played starts afresh. A finished game's match is dropped a day after game-over, any other after 7 days unchanged (swept hourly).
 - `server/services/guestSweep.js` — removes guests idle for 30 days, after asking Waypoint (fleet-kit's `checkGuests`, `POST /api/auth/proxy/guests`) which of them may go: a guest that claimed its account stays, and nobody is removed while Waypoint cannot answer.
 - `scripts/voices.mjs` — makes the crew's lines with ElevenLabs (key from the environment only).

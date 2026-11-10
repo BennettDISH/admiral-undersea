@@ -7,12 +7,15 @@ const router = express.Router();
 // All game routes require an authenticated user (the session cookie, fleet-kit).
 router.use(wp.requireUser);
 
-const { GAME_MODES } = require('../game/modes');
+const { GAME_MODES, DEFAULT_MODE, modeToStore } = require('../game/modes');
 
 // One person may hold this many open lobbies (made in the last day and not started) at a time;
-// past it, a new one waits until one is started or a day old. The create answer says how many are
-// open, so the page can warn before the limit.
+// past it, a new one waits until one is started or a day old. And one person makes at most
+// DAY_CAP games in a day, started or not (the tutorial and a game against the AI start in a click,
+// and every started match is kept in memory and the database). The create answer says how many
+// of each, so the page can warn before a limit.
 const LOBBY_CAP = 10;
+const DAY_CAP = 60;
 
 // Generate a random 6-character game code
 function generateGameCode() {
@@ -27,12 +30,13 @@ function generateGameCode() {
 // Create a new game
 router.post('/create', async (req, res) => {
   const sameRoom = req.body?.sameRoom ?? false;
-  const gameMode = req.body?.gameMode ?? 'vs-ai';
+  // An old page may still ask for 'vs-ai' or 'vs-ai-veteran': they are stored as Easy and Hard.
+  const gameMode = modeToStore(req.body?.gameMode ?? DEFAULT_MODE);
   const userId = req.user.id;
 
   // Only the modes the game plays, and same_room is a yes/no. Anything else used to be stored
   // as given (or failed as a database error) and then played as an unknown mode.
-  if (!GAME_MODES.includes(gameMode)) {
+  if (!gameMode) {
     return res.status(400).json({ error: `Game mode must be one of ${GAME_MODES.join(', ')}` });
   }
   if (typeof sameRoom !== 'boolean') {
@@ -40,15 +44,24 @@ router.post('/create', async (req, res) => {
   }
 
   try {
-    const open = await db.query(
-      `SELECT COUNT(*)::int AS n FROM games WHERE created_by = $1 AND status = 'lobby' AND created_at > NOW() - INTERVAL '1 day'`,
+    const counts = await db.query(
+      `SELECT COUNT(*)::int AS made, (COUNT(*) FILTER (WHERE status = 'lobby'))::int AS open
+       FROM games WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1 day'`,
       [userId],
     );
-    const openLobbies = open.rows[0]?.n ?? 0;
+    const openLobbies = counts.rows[0]?.open ?? 0;
+    const madeToday = counts.rows[0]?.made ?? 0;
+    const limits = { openLobbies, lobbyCap: LOBBY_CAP, madeToday, dayCap: DAY_CAP };
+    if (madeToday >= DAY_CAP) {
+      return res.status(429).json({
+        error: `You have made ${DAY_CAP} games today, the most in a day. Come back tomorrow, or join a friend's game with its code.`,
+        ...limits,
+      });
+    }
     if (openLobbies >= LOBBY_CAP) {
       return res.status(429).json({
         error: `You have ${LOBBY_CAP} open lobbies, the most at once. Start one, or wait a day for the oldest to lapse.`,
-        openLobbies, lobbyCap: LOBBY_CAP,
+        ...limits,
       });
     }
 
@@ -71,8 +84,9 @@ router.post('/create', async (req, res) => {
     res.status(201).json({
       success: true,
       game: result.rows[0],
+      ...limits,
       openLobbies: openLobbies + 1,
-      lobbyCap: LOBBY_CAP,
+      madeToday: madeToday + 1,
     });
   } catch (error) {
     console.error('Create game error:', error);

@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { useScene } from '../lib/useScene'
+import { AI_LEVELS } from '../game/rules'
 
 const MODES = [
-  { id: 'vs-ai', title: 'Hunt the AI', sub: 'Your boat against a green enemy crew.' },
-  { id: 'vs-ai-veteran', title: 'Hunt a veteran', sub: 'Against a sharp crew that pings early.' },
+  ...AI_LEVELS.map((l) => ({ id: l.mode, title: `Against AI: ${l.name}`, sub: l.sub })),
   { id: 'crews', title: 'Crew against crew', sub: 'Two boats of friends; empty stations go to the auto-crew.' },
 ]
 
@@ -14,7 +14,7 @@ const MODES = [
 function CreateGame() {
   const navigate = useNavigate()
   useScene('menu')
-  const [gameMode, setGameMode] = useState('vs-ai')
+  const [gameMode, setGameMode] = useState('vs-ai-normal')
   const [sameRoom, setSameRoom] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -24,7 +24,8 @@ function CreateGame() {
     setError('')
     try {
       const response = await api.post('/games/create', { sameRoom, gameMode })
-      navigate(`/lobby/${response.data.game.code}`, { state: { openLobbies: response.data.openLobbies, lobbyCap: response.data.lobbyCap } })
+      const { openLobbies, lobbyCap, madeToday, dayCap } = response.data
+      navigate(`/lobby/${response.data.game.code}`, { state: { openLobbies, lobbyCap, madeToday, dayCap } })
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create game')
     } finally {

@@ -6,12 +6,14 @@ import { useScene } from '../lib/useScene'
 import { useMatch } from '../game/useMatch'
 import ChartCanvas from '../game/ChartCanvas'
 import CrewPanel from '../game/CrewPanel'
+import TutorialCard from '../game/TutorialCard'
 import { HelmStation, ListeningStation, TorpedoStation, EngineStation } from '../game/Stations'
 import { react, ending, newMemory } from '../game/reactions'
 import { LINES, speakerOf } from '../game/voice'
+import { LESSONS } from '../game/tutorial'
 import { loadArt } from '../game/sprites'
 import {
-  STATIONS, STATION_INFO, TEAM_INFO, HULL_MAX, MATCH_SECONDS, CALLS, chart, headingFor, bearing, clockText, enemyOf,
+  STATIONS, STATION_INFO, TEAM_INFO, HULL_MAX, MATCH_SECONDS, CALLS, chart, headingFor, bearing, clockText, enemyOf, modeId,
 } from '../game/rules'
 
 const SHAKES = { big: { px: 10, ms: 600 }, small: { px: 4, ms: 380 } }
@@ -85,6 +87,11 @@ function Game({ user }) {
     setTimeout(() => setSpeaking({ station, caption }), startIn * 1000)
     setTimeout(() => setSpeaking((s) => (s && s.caption === caption ? null : s)), (startIn + seconds + 0.3) * 1000)
   }, [audio])
+  // a remark with no recorded line: the face talks, the words show under it
+  const remark = useCallback(({ station, text, delay = 0 }) => {
+    setTimeout(() => setSpeaking({ station, caption: text }), delay * 1000)
+    setTimeout(() => setSpeaking((s) => (s && s.caption === text ? null : s)), (delay + 2.6) * 1000)
+  }, [])
 
   const feel = useCallback((shake, flash) => {
     if (reduceMotion()) return
@@ -105,6 +112,7 @@ function Game({ user }) {
     const cue = react(ev, { team, boat: v?.boat, now: Date.now(), memory: memory.current })
     for (const [name, opts] of cue.sounds) audio.play(name, opts)
     if (cue.say) speak(cue.say)
+    if (cue.caption) remark(cue.caption)
     if (cue.alarm) setAlarmUntil(Date.now() + cue.alarm * 1000)
     if (cue.shake || cue.flash) feel(cue.shake, cue.flash)
     if (cue.visual?.kind === 'blast') setEffects((list) => [...list.filter((e) => performance.now() - e.at < 3000), { ...cue.visual, at: performance.now() }])
@@ -115,7 +123,17 @@ function Game({ user }) {
       const id = ++logId.current
       setLog((l) => [...l.slice(-40), { id, ...cue.log, t: v?.t ?? 0 }])
     }
-  }), [onFx, team, audio, speak, feel])
+  }), [onFx, team, audio, speak, remark, feel])
+
+  // the tutorial: each new lesson brings its station up on screen, with a beep from the console
+  const lesson = view?.tutorial?.step
+  useEffect(() => {
+    if (!lesson || view?.over) return
+    const station = LESSONS[lesson]?.station
+    if (station && myRoles.includes(station)) setActive(station)
+    audio.play('ui.beep', { pitch: 1.2, vol: 0.7 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson])
 
   // the server said no: a short note, unless it is only pacing
   useEffect(() => {
@@ -213,23 +231,30 @@ function Game({ user }) {
   }
 
   const b = view.boat
+  const training = Boolean(view.tutorial)
   const left = Math.max(0, MATCH_SECONDS - view.t)
   const boatName = TEAM_INFO[team]?.boat || 'Our boat'
-  const enemyName = TEAM_INFO[enemyOf(team)]?.boat || 'Enemy'
+  const enemyName = training ? 'Training boat' : TEAM_INFO[enemyOf(team)]?.boat || 'Enemy'
   const alarm = alarmUntil > Date.now()
   const Panel = active ? PANELS[active] : null
   const callFrom = myRoles.includes(active) ? active : myRoles[0]
-  const end = over ? ending(over.winner ?? null, team) : null
+  const end = over ? (training && over.winner === team
+    ? { title: 'Training complete', line: 'The training boat is on the bottom. Ready for a real hunt? Start on Easy, and stay quiet.' }
+    : ending(over.winner ?? null, team)) : null
   const flood = b.faults.some((f) => f.kind === 'flood')
 
-  const playAgain = async () => {
+  // Again, the same way: the same crew against the computer, or the tutorial once more.
+  const playAgain = async (gameMode) => {
     try {
-      const res = await api.post('/games/create', { gameMode: game?.game_mode?.startsWith('vs-ai') ? game.game_mode : 'vs-ai', sameRoom: false })
-      navigate(`/lobby/${res.data.game.code}`)
+      const res = await api.post('/games/create', { gameMode, sameRoom: false })
+      const { openLobbies, lobbyCap, madeToday, dayCap } = res.data
+      navigate(`/lobby/${res.data.game.code}`, { state: { openLobbies, lobbyCap, madeToday, dayCap } })
     } catch (err) {
       setToast(err.response?.data?.error || 'Could not make a new game')
     }
   }
+  const mode = modeId(game?.game_mode)
+  const againMode = /^vs-ai-/.test(mode) ? mode : 'vs-ai-normal'
 
   return (
     <div className={`game-page control-room team-${team} ${alarm ? 'alarm' : ''} ${b.scram > 0 ? 'blackout' : ''} ${b.hull <= 2 ? 'damaged' : ''}`} ref={pageRef}>
@@ -245,8 +270,10 @@ function Game({ user }) {
           <span className="map-name">{chart(view.mapId).name}</span>
         </div>
         <Hull hull={b.hull} label={boatName} side="ours" />
-        <div className={`match-clock ${left <= 30 ? 'low' : ''}`} aria-label="Time left">{clockText(left)}</div>
-        <Hull hull={view.enemy.hull} label={`${enemyName}${view.vsAi ? ' (AI)' : ''}`} side="theirs" />
+        {training
+          ? <div className="match-clock training" aria-label="Training: no clock">TRAINING</div>
+          : <div className={`match-clock ${left <= 30 ? 'low' : ''}`} aria-label="Time left">{clockText(left)}</div>}
+        <Hull hull={view.enemy.hull} label={`${enemyName}${view.vsAi && !training ? ' (AI)' : ''}`} side="theirs" />
         <SoundControls />
       </header>
 
@@ -285,6 +312,7 @@ function Game({ user }) {
         </section>
 
         <section className="chart-table">
+          {training && <TutorialCard view={view} contacts={contacts} send={send} myRoles={myRoles} />}
           <ChartCanvas
             view={view}
             contacts={contacts}
@@ -323,7 +351,14 @@ function Game({ user }) {
               <div><dt>Time</dt><dd>{clockText(over.t ?? view.t)}</dd></div>
             </dl>
             <div className="ending-actions">
-              <button className="primary" onClick={playAgain}>Hunt again</button>
+              {training ? (
+                <>
+                  <button className="primary" onClick={() => navigate('/', { state: { pickLevel: true } })}>Play against AI</button>
+                  <button onClick={() => playAgain('tutorial')}>Tutorial again</button>
+                </>
+              ) : (
+                <button className="primary" onClick={() => playAgain(againMode)}>Hunt again</button>
+              )}
               <button onClick={() => navigate('/')}>Back to the deck</button>
             </div>
           </div>

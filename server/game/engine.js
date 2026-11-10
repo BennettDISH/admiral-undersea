@@ -13,8 +13,9 @@ const {
   FAULT_KINDS, CALL_IDS, TUNING: T,
 } = require('./constants');
 const {
-  getMap, MAP_IDS, stepFrom, bearing, dist, chebyshev, cellOf, sameCell, headingFor,
+  getMap, MAP_IDS, PLAY_MAP_IDS, stepFrom, bearing, angleDiff, dist, chebyshev, cellOf, sameCell, headingFor,
 } = require('./map');
+const tutorial = require('./tutorial');
 
 const enemyOf = (team) => (team === 'alpha' ? 'bravo' : 'alpha');
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -40,6 +41,12 @@ const teamFx = (team, type, data) => fx('team', team, type, data);
 const roomFx = (type, data) => fx('room', null, type, data);
 
 // ---- state ---------------------------------------------------------------------------------
+// How sharp the AI's crew is when playing against it. Matches stored before the difficulty pick
+// say 'green' (now Easy) or 'veteran' (now Hard).
+const AI_SKILLS = ['easy', 'normal', 'hard'];
+const OLD_SKILLS = { green: 'easy', veteran: 'hard' };
+const skillName = (s) => (AI_SKILLS.includes(s) ? s : (typeof s === 'string' && Object.hasOwn(OLD_SKILLS, s) ? OLD_SKILLS[s] : 'normal'));
+
 function newBoat(start, map) {
   // Start facing the middle of the chart.
   const heading = headingFor(bearing(start, { x: (map.width - 1) / 2, y: (map.height - 1) / 2 }));
@@ -69,16 +76,18 @@ function newBoat(start, map) {
 /**
  * A new match. `crew` says, per team, which stations people hold ('human') and which the
  * auto-crew runs ('auto'); a team nobody joined is all auto (the enemy boat when playing the AI).
+ * `tutorial` makes the guided first dive (tutorial.js): our boat against a training boat.
  */
-function initMatch({ mapId, seed = Date.now(), startIndex, crew = {}, vsAi = false, aiSkill = 'green' } = {}) {
+function initMatch({ mapId, seed = Date.now(), startIndex, crew = {}, vsAi = false, aiSkill = 'normal', tutorial: lesson = false } = {}) {
+  if (lesson) mapId = tutorial.MAP_ID;
   const state = {
     v: 2,
     t: 0,
     rng: seed >>> 0,
     nextId: 0,
     mapId: MAP_IDS.includes(mapId) ? mapId : null,
-    vsAi: Boolean(vsAi),
-    aiSkill: aiSkill === 'veteran' ? 'veteran' : 'green',
+    vsAi: Boolean(vsAi) || Boolean(lesson),
+    aiSkill: skillName(aiSkill),
     over: null,
     subs: {},
     torpedoes: [],
@@ -92,7 +101,7 @@ function initMatch({ mapId, seed = Date.now(), startIndex, crew = {}, vsAi = fal
     calls: { alpha: {}, bravo: {} },
     ai: { alpha: null, bravo: null },
   };
-  if (!state.mapId) state.mapId = pick(state, MAP_IDS);
+  if (!state.mapId) state.mapId = pick(state, PLAY_MAP_IDS);
   const map = getMap(state.mapId);
   const pair = Number.isInteger(startIndex) && map.starts[startIndex] ? map.starts[startIndex] : pick(state, map.starts);
   const flip = rand(state) < 0.5;
@@ -103,6 +112,7 @@ function initMatch({ mapId, seed = Date.now(), startIndex, crew = {}, vsAi = fal
     for (const s of STATIONS) state.crew[team][s] = crew[team]?.[s] === 'human' ? 'human' : 'auto';
   }
   state.whales = map.whales.map((w) => ({ id: nextId(state), x: w.x, y: w.y, heading: Math.floor(rand(state) * 8), progress: 0, songIn: 3 + rand(state) * 8 }));
+  if (lesson) tutorial.setup(state);
   return state;
 }
 
@@ -122,15 +132,25 @@ function effectivePower(b) {
   };
 }
 const effectiveSpeed = (b) => Math.max(0, Math.min(b.ordered, effectivePower(b).engines, 3));
-const isAuto = (state, team, station) => state.crew[team]?.[station] !== 'human' || Boolean(state.away[team]?.[station]);
+function isAuto(state, team, station) {
+  // In the tutorial our auto-crew covers only what the lesson says (the engine room, until its turn).
+  if (state.tutorial && team === 'alpha') return tutorial.autoStations(state).includes(station);
+  return state.crew[team]?.[station] !== 'human' || Boolean(state.away[team]?.[station]);
+}
 
 // ---- noise and hearing -----------------------------------------------------------------------
 function hearingRange(b, level) {
   let range = T.HEAR_BASE + T.HEAR_PER_LEVEL * level + T.HEAR_PER_SONAR * effectivePower(b).sonar;
-  if (effectiveSpeed(b) >= T.FLOW_NOISE_SPEED) range *= T.FLOW_NOISE_FACTOR;
+  range *= T.HEAR_SPEED_FACTOR[effectiveSpeed(b)] ?? 1;
   if (hasFault(b, 'sonar')) range *= T.SONAR_FAULT_FACTOR;
   if (b.scram > 0) range *= 0.5;
   return range;
+}
+
+/** How loud a boat is right now: its speed, less the mask of a vent field it is in. */
+function noiseOf(state, b) {
+  const speed = effectiveSpeed(b);
+  return getMap(state.mapId).isVent(b.x, b.y) ? Math.max(0, speed - T.VENT_MASK) : speed;
 }
 
 /** A noise at { x, y }: every boat but its maker's may hear it, as a contact on its plot. */
@@ -150,7 +170,8 @@ function emitNoise(state, events, noise) {
     } else {
       if (d > hearingRange(b, level)) continue;
       const sp = effectivePower(b).sonar;
-      const width = clamp((T.WIDTH_BASE - T.WIDTH_PER_LEVEL * level - T.WIDTH_PER_SONAR * sp + T.WIDTH_PER_CELL * d) * (hasFault(b, 'sonar') ? 2 : 1), T.WIDTH_MIN, T.WIDTH_MAX);
+      const blur = (hasFault(b, 'sonar') ? 2 : 1) * (effectiveSpeed(b) >= 3 ? T.WIDTH_AT_FULL : 1);
+      const width = clamp((T.WIDTH_BASE - T.WIDTH_PER_LEVEL * level - T.WIDTH_PER_SONAR * sp + T.WIDTH_PER_CELL * d) * blur, T.WIDTH_MIN, T.WIDTH_MAX);
       const truth = d < 0.01 ? rand(state) * 360 : bearing(b, noise);
       const told = (truth + (rand(state) * 2 - 1) * width * 0.6 + 360) % 360;
       contact = { id: nextId(state), t: r1(state.t), kind: noise.kind, bearing: r1(told), width: r1(width), ox: b.x, oy: b.y, near: d <= T.NEAR_CELLS, level };
@@ -176,8 +197,19 @@ function addFaults(state, team, n, events) {
   }
 }
 
+/** One fault of a given kind (the tutorial's engine-room lesson starts a fire). */
+function addFault(state, team, kind, events) {
+  const b = state.subs[team];
+  if (!FAULT_KINDS.includes(kind) || hasFault(b, kind)) return;
+  b.faults.push({ id: nextId(state), kind });
+  if (kind === 'flood') b.floodTime = 0;
+  events.push(teamFx(team, 'fault', { kind }));
+}
+
 function hurt(state, team, damage, cause, events) {
   const b = state.subs[team];
+  // Training: our boat is shaken and hurt, but never sunk.
+  if (state.tutorial && team === 'alpha') damage = Math.min(damage, b.hull - 1);
   if (damage <= 0 || b.hull <= 0) return;
   b.hull = Math.max(0, b.hull - damage);
   events.push(roomFx('hit', { team, damage, hull: b.hull, cause }));
@@ -200,7 +232,8 @@ function checkOver(state, events) {
   if (state.over) return;
   const a = state.subs.alpha.hull <= 0;
   const b = state.subs.bravo.hull <= 0;
-  const left = T.MATCH_SECONDS - state.t;
+  // The tutorial has no clock: it ends when the training boat goes down.
+  const left = state.tutorial ? Infinity : T.MATCH_SECONDS - state.t;
   // The clock: a warning at two minutes and at thirty seconds, then the boat with more hull wins.
   for (const mark of [120, 30]) {
     if (left <= mark && !state.warned?.[mark]) {
@@ -319,6 +352,7 @@ function fire(state, team, tube, target) {
   if (!target || !map.inBounds(target.x, target.y)) return reject('fire', 'bad-target');
   if (sameCell(b, target)) return reject('fire', 'own-cell', 'That is our own position.');
   if (dist(b, target) > TORPEDO.range) return reject('fire', 'out-of-range', `Out of range: torpedoes run ${TORPEDO.range} cells.`);
+  if (dist(b, target) < TORPEDO.armAfter) return reject('fire', 'too-close', `Too close: a torpedo only arms after ${TORPEDO.armAfter} cells.`);
   tb.state = 'empty';
   tb.progress = 0;
   const tp = { id: nextId(state), team, tube, x: b.x, y: b.y, tx: target.x, ty: target.y, run: 0, noiseIn: T.TORPEDO_NOISE_EVERY };
@@ -413,6 +447,19 @@ function call(state, team, station, callId) {
     if (callId === 'ping-now') brain.pingAsked = true;
   }
   return ok([teamFx(team, 'call', { station, call: callId })]);
+}
+
+// The tutorial: Next on a step that is only read, or Skip a lesson.
+const tutorialKit = () => ({ A: ACTIONS, teamFx, addFault, effectiveSpeed, map: (s) => getMap(s.mapId) });
+
+function tutorialAct(state, team, action) {
+  const no = live(state, 'tutorial');
+  if (no) return no;
+  if (!state.tutorial || team !== 'alpha') return reject('tutorial', 'not-tutorial');
+  if (action !== 'next' && action !== 'skip') return reject('tutorial', 'bad-action');
+  const events = [];
+  if (!tutorial.act(state, action, events, tutorialKit())) return reject('tutorial', 'not-now');
+  return ok(events);
 }
 
 // ---- the clock ---------------------------------------------------------------------------------
@@ -515,12 +562,53 @@ function tickBoat(state, team, dt, events) {
   emitNoise(state, events, { x: b.x, y: b.y, level: speed, kind: 'hull', source: team, maskable: true });
 }
 
+/**
+ * What an armed torpedo's seeker hears ahead of it (within SEEKER_CONE of where it is running):
+ * the other side's decoy first, else a loud boat. It never turns back on what it has passed.
+ */
+const armsAfter = (tp) => tp.arm ?? TORPEDO.armAfter;
+
+function seekerTarget(state, tp) {
+  if (tp.run < armsAfter(tp)) return null;
+  const course = bearing(tp, { x: tp.tx, y: tp.ty });
+  const ahead = (p, gap) => gap < 0.5 || (tp.tx === Math.round(tp.x) && tp.ty === Math.round(tp.y)) || Math.abs(angleDiff(course, bearing(tp, p))) <= T.SEEKER_CONE;
+  let best = null;
+  let bestGap = Infinity;
+  for (const d of state.decoys) {
+    if (d.team === tp.team || d.life <= 0) continue;
+    const gap = dist(tp, d);
+    if (gap <= T.SEEKER_DECOY_RANGE && gap < bestGap && ahead(d, gap)) { best = { x: d.x, y: d.y, decoy: true }; bestGap = gap; }
+  }
+  if (best) return best;
+  for (const team of TEAMS) {
+    if (team === tp.team) continue;
+    const b = state.subs[team];
+    if (b.hull <= 0) continue;
+    const reach = T.SEEKER_RANGE[noiseOf(state, b)] || 0;
+    const gap = dist(tp, b);
+    if (reach && gap <= reach && gap < bestGap && ahead(b, gap)) { best = { x: b.x, y: b.y, decoy: false }; bestGap = gap; }
+  }
+  return best;
+}
+
 function tickTorpedoes(state, dt, events) {
   const map = getMap(state.mapId);
   const gone = new Set();
   for (const tp of state.torpedoes) {
+    const heard = seekerTarget(state, tp);
+    if (heard) {
+      tp.tx = heard.x;
+      tp.ty = heard.y;
+      const on = heard.decoy ? 'decoy' : 'boat';
+      if (tp.seeking !== on) {
+        tp.seeking = on;
+        events.push(teamFx(tp.team, 'seeker', { id: tp.id, on }));
+      }
+    }
+    // The tutorial's practice torpedo only goes off on something its seeker hears right now.
+    if (tp.practice) tp.homing = Boolean(heard);
     const target = { x: tp.tx, y: tp.ty };
-    const stepLen = TORPEDO.speed * dt;
+    const stepLen = (tp.speed || TORPEDO.speed) * dt; // the tutorial's practice torpedo runs slower
     const left = dist(tp, target);
     let detonateAt = null;
     if (left <= stepLen) {
@@ -534,7 +622,7 @@ function tickTorpedoes(state, dt, events) {
       tp.run += stepLen;
       const cell = cellOf(tp);
       if (!map.isWater(cell.x, cell.y)) detonateAt = cell;
-      else if (tp.run >= TORPEDO.armAfter) {
+      else if (tp.run >= armsAfter(tp) && !tp.practice) {
         for (const team of TEAMS) {
           const b = state.subs[team];
           if (b.hull > 0 && sameCell(b, cell)) { detonateAt = cell; break; }
@@ -543,7 +631,11 @@ function tickTorpedoes(state, dt, events) {
     }
     if (detonateAt) {
       gone.add(tp.id);
-      blast(state, detonateAt, tp.team, events);
+      // Not yet armed: it never goes off (a person firing this close is refused; a steered or
+      // seeking torpedo can still end its run short).
+      if (tp.practice && !tp.homing) events.push(teamFx(tp.team, 'torpedo-spent', { id: tp.id }));
+      else if (tp.run < armsAfter(tp) - 1e-6) events.push(teamFx(tp.team, 'torpedo-dud', { id: tp.id }));
+      else blast(state, detonateAt, tp.team, events);
       continue;
     }
     if (tp.run >= TORPEDO.maxRun) {
@@ -567,8 +659,12 @@ function tickDecoys(state, dt, events) {
     d.progress += dt / DECOY.secondsPerCell;
     if (d.progress >= 1) {
       d.progress = 0;
-      const s = stepFrom(map, d, d.heading);
-      if (s.ok) { d.x = s.to.x; d.y = s.to.y; }
+      // A decoy meeting rock glances off along it rather than sitting there.
+      for (const turn of [0, 1, -1, 2, -2]) {
+        const h = (d.heading + turn + 8) % 8;
+        const s = stepFrom(map, d, h);
+        if (s.ok) { d.x = s.to.x; d.y = s.to.y; d.heading = h; break; }
+      }
     }
     d.noiseIn -= dt;
     if (d.noiseIn <= 0 && d.life > 0) {
@@ -614,6 +710,7 @@ function tick(state, dt = T.TICK_SECONDS, brains = null) {
   tickTorpedoes(state, dt, events);
   tickDecoys(state, dt, events);
   tickWhales(state, dt, events);
+  if (state.tutorial) tutorial.tick(state, dt, events, tutorialKit());
   checkOver(state, events);
 
   const ttl = state.t - T.CONTACT_TTL;
@@ -626,6 +723,7 @@ function tick(state, dt = T.TICK_SECONDS, brains = null) {
   if (brains && !state.over) {
     // Neither crew always hears the other's latest move first.
     for (const team of rand(state) < 0.5 ? TEAMS : [TEAMS[1], TEAMS[0]]) {
+      if (state.tutorial && team === 'bravo') continue; // the training boat is the lesson's to drive
       const auto = STATIONS.filter((s) => isAuto(state, team, s));
       if (state.subs[team].hull > 0) brains.run(state, team, auto, events, ACTIONS);
     }
@@ -676,15 +774,18 @@ function teamView(state, team, { contacts = false } = {}) {
     ping: state.pings[team],
     crew,
   };
+  if (state.tutorial && team === 'alpha') view.tutorial = tutorial.view(state);
   if (contacts) view.contacts = state.contacts[team];
   return view;
 }
 
 const ACTIONS = {
-  setHeading, turn, setSpeed, setMarker, ping, loadTube, fire, guide, launchDecoy, setPower, startRepair, vent, call,
+  setHeading, turn, setSpeed, setMarker, ping, loadTube, fire, guide, launchDecoy, setPower, startRepair, vent, call, tutorialAct,
 };
 
 module.exports = {
+  AI_SKILLS,
+  skillName,
   enemyOf,
   rand,
   initMatch,
@@ -694,11 +795,14 @@ module.exports = {
   effectivePower,
   effectiveSpeed,
   hearingRange,
+  noiseOf,
+  seekerTarget,
   hasFault,
   isAuto,
   emitNoise,
   blast,
   addFaults,
+  addFault,
   ACTIONS,
   ...ACTIONS,
 };

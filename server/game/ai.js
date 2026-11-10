@@ -13,17 +13,40 @@ const {
 
 const FAULT_ORDER = ['flood', 'fire', 'sonar', 'rudder'];
 
-// How sharp a crew is. A boat's own auto stations (helping its people) are steady; the enemy boat
-// when playing the AI is a green crew (slower, shakier, holds fire through the opening) unless the
-// lobby asked for a veteran one.
+// How sharp a crew is. A boat's own auto stations (covering for its people) are a steady crew;
+// against the AI, the enemy boat's crew is Easy, Normal or Hard, picked on the deck.
+//   think        seconds between looks at the plot: how fast it reacts
+//   attention    the share of what its hydrophones hear that it takes in, and blur, how much wider
+//                than it is it reads each bearing: how well it listens
+//   aimJitter    the chance a shot goes a cell off the mark: how well it aims
+//   fireConf     how sure of the mark it wants to be before it shoots
+//   snap         whether it shoots straight back at a loud contact (a boat at Full, a ping, a
+//                launch) while it is only snapConf sure: the reason charging in loses
+//   shotSpacing  seconds between its shots; pingAfter, fireAfter: seconds before it pings or shoots
+//   evade        'quiet' (slow across a torpedo's path, half if it knows where we are) or 'run'
+//                (Full: loud, and a torpedo's seeker hears it), and decoy, the chance it throws one
+//   patrol, approach  its speed searching and closing on a mark; listenStops: it stops to listen
 const SKILLS = {
-  steady: { think: 0.5, aimJitter: 0.3, fireConf: 0.3, shotSpacing: 6, pingAfter: 0, fireAfter: 0, repairs: true },
-  green: { think: 0.9, aimJitter: 0.6, fireConf: 0.45, shotSpacing: 14, pingAfter: 50, fireAfter: 60, repairs: true },
-  veteran: { think: 0.6, aimJitter: 0.35, fireConf: 0.35, shotSpacing: 8, pingAfter: 25, fireAfter: 30, repairs: true },
+  steady: {
+    think: 0.5, attention: 1, blur: 1, aimJitter: 0.3, fireConf: 0.3, snap: true, snapConf: 0.12, shotSpacing: 6,
+    pingAfter: 0, fireAfter: 0, evade: 'quiet', decoy: 1, patrol: 1, approach: 2, listenStops: false,
+  },
+  easy: {
+    think: 1.1, attention: 0.55, blur: 1.6, aimJitter: 0.6, fireConf: 0.5, snap: false, snapConf: 1, shotSpacing: 18,
+    pingAfter: 75, fireAfter: 60, evade: 'run', decoy: 0, patrol: 2, approach: 2, listenStops: false,
+  },
+  normal: {
+    think: 0.7, attention: 0.9, blur: 1.1, aimJitter: 0.35, fireConf: 0.35, snap: true, snapConf: 0.15, shotSpacing: 9,
+    pingAfter: 25, fireAfter: 10, evade: 'quiet', decoy: 0.6, patrol: 1, approach: 1, listenStops: true,
+  },
+  hard: {
+    think: 0.45, attention: 1, blur: 0.85, aimJitter: 0.15, fireConf: 0.3, snap: true, snapConf: 0.1, shotSpacing: 7,
+    pingAfter: 10, fireAfter: 0, evade: 'quiet', decoy: 1, patrol: 1, approach: 1, listenStops: true,
+  },
 };
 
 function skillOf(state, team) {
-  if (state.vsAi && team === 'bravo') return SKILLS[state.aiSkill] || SKILLS.green;
+  if (state.vsAi && team === 'bravo') return SKILLS[engine.skillName(state.aiSkill)];
   return SKILLS.steady;
 }
 
@@ -45,6 +68,11 @@ function newBrain(state, team) {
     nextThink: state.t,
     threatAt: -99,
     threatBearing: 0,
+    decoyThisTime: false,
+    loudAt: -99,           // when we last heard the enemy loud: Full, a ping, a launch, a scrape
+    exposedUntil: 0,       // they know where we are (we fired or pinged, or they pinged us)
+    stopUntil: 0,
+    nextStop: state.t + 15,
     evadeUntil: 0,
     evadeHeading: null,
     evadeSet: -99,
@@ -174,23 +202,30 @@ function observe(state, team, brain) {
     brain.nextDiffuse = state.t + 1;
   }
 
+  const skill = skillOf(state, team);
   for (const c of state.contacts[team]) {
     if (c.id <= brain.lastContact) continue;
     brain.lastContact = c.id;
     if (c.kind === 'bio') continue; // a whale; the crew knows the song
+    // An inattentive crew misses some of what comes in (never a torpedo, a launch or a ping).
+    const urgent = c.kind === 'torpedo' || c.kind === 'launch' || c.kind === 'ping';
+    if (!urgent && skill.attention < 1 && engine.rand(state) > skill.attention) continue;
     if (c.kind === 'torpedo' || c.kind === 'launch') {
+      if (state.t - brain.threatAt > 5) brain.decoyThisTime = skill.decoy >= 1 || (skill.decoy > 0 && engine.rand(state) < skill.decoy);
       brain.threatAt = state.t;
       brain.threatBearing = c.bearing ?? bearing(own, c);
     }
     if (c.kind === 'ping') {
       // They know exactly where we are: break away across their line before a torpedo comes.
       brain.evadeUntil = state.t + 4;
+      brain.exposedUntil = state.t + 10;
       brain.threatBearing = bearing(own, c);
       brain.evadeHeading = null;
     }
     if (c.kind === 'torpedo') continue; // where a torpedo is, not the boat
+    if (c.exact || c.kind === 'launch' || c.kind === 'scrape' || (c.kind === 'hull' && (c.level ?? 0) >= 3)) brain.loudAt = state.t;
     if (c.exact) learnExact(brain, map, { x: c.x, y: c.y });
-    else learnBearing(brain, map, c, engine.hearingRange(own, c.level || 2));
+    else learnBearing(brain, map, skill.blur === 1 ? c : { ...c, width: c.width * skill.blur }, engine.hearingRange(own, c.level || 2));
   }
 
   const p = state.pings[team];
@@ -264,35 +299,42 @@ function act(state, team, auto, A, out) {
   const skill = skillOf(state, team);
   const threat = state.t - brain.threatAt < 5;
   const evading = threat || brain.evadeUntil > state.t;
+  // A loud contact a moment ago (a boat at Full, a ping, a launch): worth a quick shot down it.
+  const loud = state.t - (brain.loudAt ?? -99) <= 3;
+  const snapping = skill.snap && loud;
+  const autoListener = engine.isAuto(state, team, 'listener');
 
   // Listening: mark the best guess, ping when lost and the enemy is likely close.
   if (auto.includes('listener')) {
-    if (brain.best && brain.conf >= 0.2 && (!b.marker || !sameCell(b.marker, brain.best) || state.t - brain.lastMark > 5)) {
+    const sure = brain.conf >= 0.2 || (snapping && brain.conf >= skill.snapConf);
+    if (brain.best && sure && (!b.marker || !sameCell(b.marker, brain.best) || state.t - brain.lastMark > 5)) {
       want(() => A.setMarker(state, team, brain.best));
       brain.lastMark = state.t;
     }
     const canPing = b.pingCharge >= 1 && engine.effectivePower(b).sonar >= 2 && !engine.hasFault(b, 'sonar') && state.t >= skill.pingAfter;
     const lost = brain.conf < 0.3 && !threat && state.t - brain.lastPing > 25;
     if (canPing && (brain.pingAsked || (lost && (massWithin(brain, map, b, PING.radius) > 0.4 || state.t - brain.lastPing > 45)))) {
-      if (want(() => A.ping(state, team))) { brain.lastPing = state.t; brain.pingAsked = false; }
+      if (want(() => A.ping(state, team))) { brain.lastPing = state.t; brain.pingAsked = false; brain.exposedUntil = state.t + 10; }
     }
   }
 
   // The mark the boat fights by: whoever set it. A person's mark is trusted while it is fresh.
   const marker = b.marker && state.t - b.marker.t <= 20 ? b.marker : null;
-  const trust = engine.isAuto(state, team, 'listener') ? brain.conf : 0.4;
+  const trust = autoListener ? brain.conf : 0.4;
 
-  // Torpedo room: keep a tube loading, shoot at a good mark, steer the fish onto it, decoy a threat.
+  // Torpedo room: keep a tube loading, shoot at a good mark, steer the fish onto it, and throw a
+  // decoy at a torpedo coming (its seeker goes for the decoy first).
   if (auto.includes('weapons')) {
     if (!b.tubes.some((tb) => tb.state === 'loading')) {
       const empty = b.tubes.findIndex((tb) => tb.state === 'empty');
       if (empty >= 0) want(() => A.loadTube(state, team, empty));
     }
-    if (threat && b.decoyCooldown <= 0) want(() => A.launchDecoy(state, team, headingFor(brain.threatBearing + 90)));
+    if (threat && brain.decoyThisTime && b.decoyCooldown <= 0) want(() => A.launchDecoy(state, team, headingFor(brain.threatBearing)));
     const ready = b.tubes.findIndex((tb) => tb.state === 'ready');
     const running = state.torpedoes.some((tp) => tp.team === team);
-    const fireConf = engine.isAuto(state, team, 'listener') ? skill.fireConf : 0.3;
-    if (ready >= 0 && marker && trust >= fireConf && !running && state.t >= skill.fireAfter
+    const fireConf = autoListener ? skill.fireConf : 0.3;
+    const sure = trust >= fireConf || (autoListener && snapping && trust >= skill.snapConf);
+    if (ready >= 0 && marker && sure && !running && state.t >= skill.fireAfter
       && state.t - brain.lastShot >= skill.shotSpacing && !(brain.holdUntil > state.t)) {
       const d = dist(b, marker);
       if (d >= T.FIRE_MIN_DISTANCE && d <= TORPEDO.range - 1 && clearShot(map, b, marker)) {
@@ -300,20 +342,21 @@ function act(state, team, auto, A, out) {
         if (engine.rand(state) < skill.aimJitter) {
           const h = Math.floor(engine.rand(state) * 8);
           const s = stepFrom(map, aim, h);
-          if (s.ok && !sameCell(s.to, b)) aim = s.to;
+          if (s.ok && dist(s.to, b) >= T.FIRE_MIN_DISTANCE) aim = s.to;
         }
-        if (want(() => A.fire(state, team, ready, aim))) brain.lastShot = state.t;
+        if (want(() => A.fire(state, team, ready, aim))) { brain.lastShot = state.t; brain.exposedUntil = state.t + 8; }
       }
     }
     if (marker) {
       for (const tp of state.torpedoes) {
-        if (tp.team !== team || (tp.tx === marker.x && tp.ty === marker.y)) continue;
+        if (tp.team !== team || tp.seeking || (tp.tx === marker.x && tp.ty === marker.y)) continue;
         if (dist(b, marker) >= T.FIRE_MIN_DISTANCE) want(() => A.guide(state, team, tp.id, marker));
       }
     }
   }
 
-  // Helm: dodge a torpedo across its path, close to firing range on a good mark, else patrol quietly.
+  // Helm: slip a torpedo across its path, close to firing range on a good mark, else patrol
+  // quietly, stopping now and then to listen.
   if (auto.includes('helm') && !engine.hasFault(b, 'rudder')) {
     let heading = b.heading;
     let speed = b.ordered;
@@ -326,21 +369,25 @@ function act(state, team, auto, A, out) {
         brain.evadeSet = state.t;
       }
       if (brain.evadeHeading !== null) heading = brain.evadeHeading;
-      speed = 3;
+      // Quiet: a seeker does not hear a slow boat. Half when they know where we are, to clear the blast.
+      speed = skill.evade === 'run' ? 3 : (brain.exposedUntil ?? 0) > state.t ? 2 : 1;
+      brain.stopUntil = 0;
     } else {
       brain.evadeHeading = null;
       let goal = null;
       if (marker && trust >= 0.25) {
         const d = dist(b, marker);
-        if (d > 7) { goal = marker; speed = brain.quietUntil > state.t ? 1 : 2; }
+        if (d > 7) { goal = marker; speed = brain.quietUntil > state.t ? 1 : skill.approach; }
         else if (d >= 4) {
           // in range: creep across the line of fire, quietly
           heading = firstOkHeading(map, b, [headingFor(bearing(b, marker) + 90), headingFor(bearing(b, marker) - 90), b.heading]) ?? b.heading;
           speed = 1;
         } else {
+          // too close to shoot (a torpedo arms only after a few cells): open the range
           heading = firstOkHeading(map, b, [headingFor(bearing(marker, b)), headingFor(bearing(marker, b) + 45), headingFor(bearing(marker, b) - 45)]) ?? b.heading;
           speed = 2;
         }
+        brain.stopUntil = 0;
       } else {
         if (!brain.waypoint || sameCell(b, brain.waypoint) || state.t > brain.waypointUntil) {
           const far = waterCells(map).filter((c) => dist(b, c) >= 4);
@@ -348,7 +395,14 @@ function act(state, team, auto, A, out) {
           brain.waypointUntil = state.t + 45;
         }
         goal = brain.waypoint;
-        speed = brain.quietUntil > state.t ? 1 : 1;
+        speed = brain.quietUntil > state.t ? 1 : skill.patrol;
+        if (skill.listenStops) {
+          if (state.t >= (brain.nextStop ?? Infinity) && !(brain.stopUntil > state.t)) {
+            brain.stopUntil = state.t + 6;
+            brain.nextStop = state.t + 18 + engine.rand(state) * 12;
+          }
+          if (brain.stopUntil > state.t) { speed = 0; goal = null; }
+        }
       }
       if (goal) {
         const r = routeTo(map, b, goal);

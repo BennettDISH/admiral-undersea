@@ -30,6 +30,8 @@ function parseMap(def) {
 
 const CHARTS = new Map(MAPS.map((m) => [m.id, parseMap(m)]));
 const MAP_IDS = [...CHARTS.keys()];
+// The charts a match is dealt at random (the tutorial's open training range is kept for it).
+const PLAY_MAP_IDS = MAPS.filter((m) => !m.training).map((m) => m.id);
 const getMap = (id) => CHARTS.get(id) || CHARTS.get(MAP_IDS[0]);
 
 /** The cell one step along `heading` from `from`, and whether a boat can go there (no rock, no edge, no cutting a rock's corner). */
@@ -129,6 +131,7 @@ module.exports = {
   DELTAS,
   HEADINGS,
   MAP_IDS,
+  PLAY_MAP_IDS,
   key,
   parseMap,
   getMap,

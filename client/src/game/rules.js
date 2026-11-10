@@ -44,6 +44,33 @@ export const TEAM_INFO = {
   bravo: { boat: 'Barracuda', colour: 'red' },
 }
 
+// Playing against the computer's boat: how sharp its crew is, picked on the deck. (It is a
+// scripted crew on the server, server/game/ai.js, that hears only what its own boat hears.)
+export const AI_LEVELS = [
+  {
+    id: 'easy', mode: 'vs-ai-easy', name: 'Easy', pips: 1,
+    sub: 'A sleepy crew: it misses half of what it hears, waits a minute before it shoots, and runs loud when you shoot at it. A good first hunt.',
+    note: 'Somewhere out there, half asleep.',
+  },
+  {
+    id: 'normal', mode: 'vs-ai-normal', name: 'Normal', pips: 2,
+    sub: 'A proper crew. It stops to listen, shoots straight back down any loud bearing, and slips your torpedoes quietly. Charge it and you lose.',
+    note: 'Somewhere out there, running quiet and listening.',
+  },
+  {
+    id: 'hard', mode: 'vs-ai-hard', name: 'Hard', pips: 3,
+    sub: 'A sharp crew: quick ears, quick shots, a decoy for every torpedo. Every sound you make is a gift to them.',
+    note: 'Somewhere out there, and they run every station well.',
+  },
+]
+const OLD_MODES = { 'vs-ai': 'vs-ai-easy', 'vs-ai-veteran': 'vs-ai-hard' }
+/** A stored game mode as it is played now (games made before the difficulty pick had other names). */
+export const modeId = (mode) => (typeof mode === 'string' && Object.hasOwn(OLD_MODES, mode) ? OLD_MODES[mode] : mode)
+export const isTutorial = (mode) => modeId(mode) === 'tutorial'
+/** One boat to crew: the tutorial and every game against the computer. */
+export const isVsAi = (mode) => isTutorial(mode) || /^vs-ai-(easy|normal|hard)$/.test(modeId(mode))
+export const aiLevelOf = (mode) => AI_LEVELS.find((l) => l.mode === modeId(mode)) || null
+
 // What a contact is, as the listener's plot shows it.
 export const CONTACT_INFO = {
   hull: { label: 'Machinery', note: 'a boat under way' },
@@ -136,9 +163,12 @@ export function shotProblem(map, from, target) {
   if (from.x === target.x && from.y === target.y) return 'That is our own position'
   if (dist(from, target) > TORPEDO.range) return `Out of range (${TORPEDO.range} cells)`
   if (cellsAlong(from, target).some((c) => !map.isWater(c.x, c.y))) return 'Rock in the way: it will blow on the rock'
-  if (Math.max(Math.abs(from.x - target.x), Math.abs(from.y - target.y)) <= 1) return 'Too close: the blast would hit us'
+  if (dist(from, target) < TORPEDO.armAfter) return `Too close: a torpedo only arms after ${TORPEDO.armAfter} cells`
   return null
 }
+
+/** How far we hear at each of our speeds, against stopped-or-slow (our own flow noise deafens us). */
+export const HEARING_AT_SPEED = DATA.hearingAtSpeed
 
 /** Seconds to load one tube at `power` on tubes, with `loading` tubes sharing it. */
 export const loadSeconds = (power, loading = 1) => (power > 0 ? (TORPEDO.loadSecondsAtOnePower * loading) / power : Infinity)

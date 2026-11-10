@@ -6,14 +6,14 @@ import { joinGameOnConnect } from '../lib/gameRoom'
 import { useScene } from '../lib/useScene'
 import { getAudio } from '../lib/audio'
 import { Portrait } from '../game/CrewPanel'
-import { STATIONS, STATION_INFO, TEAM_INFO } from '../game/rules'
+import { STATIONS, STATION_INFO, TEAM_INFO, isVsAi, isTutorial, aiLevelOf } from '../game/rules'
 import { loadArt } from '../game/sprites'
 
 const rolesOf = (p) => (p?.roles || '').split(',').filter((r) => STATIONS.includes(r))
-const isVsAi = (mode) => mode === 'vs-ai' || mode === 'vs-ai-veteran'
 
 // The muster: pick a boat and the stations you will run; any station nobody takes goes to the
-// auto-crew. Against the AI there is one boat to crew. The creator gives the order to dive.
+// auto-crew. Against the AI there is one boat to crew. The creator gives the order to dive; the
+// tutorial seats its player at every station and dives by itself.
 function Lobby({ user }) {
   const { code } = useParams()
   const navigate = useNavigate()
@@ -67,6 +67,8 @@ function Lobby({ user }) {
   const myTeam = me?.team || null
   const myRoles = rolesOf(me)
   const vsAi = isVsAi(game?.game_mode)
+  const tutorial = isTutorial(game?.game_mode)
+  const level = aiLevelOf(game?.game_mode)
 
   const pickTeam = (team) => socket.emit('select-team', { gameCode: code, team })
   const setRoles = (roles) => socket.emit('select-roles', { gameCode: code, roles })
@@ -89,6 +91,16 @@ function Lobby({ user }) {
     }
   }, [game, vsAi, me, players, user.id])
 
+  // The tutorial: once its player holds every station, dive.
+  const dived = useRef(false)
+  useEffect(() => {
+    if (!tutorial || !game || game.status !== 'lobby' || game.created_by !== user.id || dived.current) return
+    if (me?.team === 'alpha' && STATIONS.every((s) => rolesOf(me).includes(s))) {
+      dived.current = true
+      socket.emit('start-game', { gameCode: code })
+    }
+  }, [tutorial, game, me, user.id, code])
+
   const toggle = (station) => {
     const next = myRoles.includes(station) ? myRoles.filter((r) => r !== station) : [...myRoles, station]
     setRoles(STATIONS.filter((s) => next.includes(s)))
@@ -107,14 +119,18 @@ function Lobby({ user }) {
 
   const isCreator = game.created_by === user.id
   const teams = vsAi ? ['alpha'] : ['alpha', 'bravo']
-  const capNote = location.state?.openLobbies >= (location.state?.lobbyCap ?? 10) - 2 ? `You have ${location.state.openLobbies} of ${location.state.lobbyCap} open lobbies; start or leave some before making more.` : ''
+  const lim = location.state || {}
+  const capNote = lim.madeToday >= (lim.dayCap ?? 60) - 5
+    ? `You have made ${lim.madeToday} of ${lim.dayCap} games today; past that, new ones wait until tomorrow.`
+    : lim.openLobbies >= (lim.lobbyCap ?? 10) - 2 ? `You have ${lim.openLobbies} of ${lim.lobbyCap} open lobbies; start or leave some before making more.` : ''
+  const modeLine = tutorial ? 'Tutorial: a training boat waits out there' : level ? `Against the computer's boat: ${level.name}` : 'Crew against crew'
 
   return (
     <div className="lobby-page deck-page">
       <header className="muster-head">
         <div>
-          <h1>{vsAi ? 'Make ready to dive' : 'Muster the crews'}</h1>
-          <p className="muster-mode">{vsAi ? `Against the AI's boat: a ${game.game_mode === 'vs-ai-veteran' ? 'veteran' : 'green'} crew` : 'Crew against crew'}</p>
+          <h1>{tutorial ? 'Making ready for your first dive…' : vsAi ? 'Make ready to dive' : 'Muster the crews'}</h1>
+          <p className="muster-mode">{modeLine}</p>
         </div>
         <button className="code-chip" onClick={copyLink} title="Copy the link to this lobby">
           <span>Code</span><strong>{code}</strong><em>{copied ? 'link copied' : 'copy link'}</em>
@@ -158,8 +174,11 @@ function Lobby({ user }) {
         })}
         {vsAi && (
           <section className="boat-card team-bravo enemy">
-            <header><h2>{TEAM_INFO.bravo.boat}</h2><span className="aboard-tag">AI crew</span></header>
-            <p className="enemy-note">Somewhere out there, running quiet. Every station is theirs to run{game.game_mode === 'vs-ai-veteran' ? ', and they run them well' : ''}.</p>
+            <header>
+              <h2>{tutorial ? 'Training boat' : TEAM_INFO.bravo.boat}</h2>
+              <span className="aboard-tag">{tutorial ? 'Training' : `Computer crew · ${level?.name || 'Normal'}`}</span>
+            </header>
+            <p className="enemy-note">{tutorial ? 'An old hulk run by the instructors. It will make noise for you to find, and fire one slow practice torpedo.' : level?.note || 'Somewhere out there, running quiet.'}</p>
           </section>
         )}
       </div>

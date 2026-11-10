@@ -2,11 +2,13 @@ import { useEffect } from 'react'
 import Scope from './Scope'
 import {
   HEADINGS, HEADING_NAMES, SPEED_NAMES, POWER, VENT, FAULTS, CONTACT_INFO, chart, canStep, cellName, bearingText,
-  shotProblem, loadSeconds, totalPower, DECOY,
+  shotProblem, loadSeconds, totalPower, DECOY, HEARING_AT_SPEED, TORPEDO,
 } from './rules'
 
 const FAULT_ICON = { fire: '🔥', flood: '🌊', sonar: '📡', rudder: '⚙️' }
 const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '')
+// what our own flow noise leaves of our hearing, by speed (rules.HEARING_AT_SPEED)
+const FLOW_NOISE = HEARING_AT_SPEED.map((f, i) => (i === 0 ? 'Stopped: hearing best' : i === 1 ? 'Quiet: hearing well' : `Flow noise: hearing ${Math.round(f * 100)}%`))
 
 // ---- Helm ----------------------------------------------------------------------------------
 export function HelmStation({ view, send }) {
@@ -83,9 +85,9 @@ export function HelmStation({ view, send }) {
         <span className={`lamp ${ahead ? 'red blink' : 'off'}`}>Rocks ahead</span>
         <span className={`lamp ${jammed ? 'red blink' : 'off'}`}>Rudder jammed</span>
         <span className={`lamp ${b.speed < b.ordered ? 'amber' : 'off'}`}>{b.speed < b.ordered ? `Engines give ${SPEED_NAMES[b.speed]}` : 'Engines answering'}</span>
-        <span className={`lamp ${b.speed >= 3 ? 'amber' : 'off'}`}>Flow noise: sonar half deaf</span>
+        <span className={`lamp ${b.speed >= 3 ? 'red' : b.speed === 2 ? 'amber' : 'off'}`}>{FLOW_NOISE[b.speed]}</span>
       </div>
-      <p className="station-keys">Keys: ← → turn · ↑ ↓ speed. A boat at full speed is heard across the sea.</p>
+      <p className="station-keys">Keys: ← → turn · ↑ ↓ speed. A boat at Full is heard across the sea, nearly deaf itself, and a torpedo's seeker hears it.</p>
     </div>
   )
 }
@@ -119,7 +121,7 @@ export function ListeningStation({ view, contacts, send }) {
         </div>
       </div>
       <div className="contact-list" aria-live="polite">
-        {recent.length === 0 && <div className="contact-row quiet">Hydrophones quiet… {b.speed >= 3 ? 'too much flow noise at full speed.' : 'listening.'}</div>}
+        {recent.length === 0 && <div className="contact-row quiet">Hydrophones quiet… {b.speed >= 3 ? 'our own flow noise at Full drowns nearly everything.' : b.speed === 2 ? 'some flow noise at Half.' : 'listening.'}</div>}
         {recent.map((c) => (
           <div key={c.id} className={`contact-row k-${c.kind}`}>
             <span className="c-age">-{Math.round(view.t - c.t)}s</span>
@@ -185,7 +187,7 @@ export function TorpedoStation({ view, send, aim, setAim, guideId, setGuideId })
         <div className="running">
           {view.torpedoes.map((tp) => (
             <button key={tp.id} className={`run-row ${guideId === tp.id ? 'on' : ''}`} onClick={() => setGuideId(guideId === tp.id ? null : tp.id)}>
-              ➤ Torpedo running to {cellName(tp.tx, tp.ty)} · {Math.max(0, Math.round(11 - tp.run))} cells of fuel · {guideId === tp.id ? 'click the chart to steer it' : 'steer'}
+              ➤ Torpedo running to {cellName(tp.tx, tp.ty)} · {tp.run < TORPEDO.armAfter ? 'arming' : 'armed'} · {Math.max(0, Math.round(TORPEDO.maxRun - tp.run))} cells of fuel · {guideId === tp.id ? 'click the chart to steer it' : 'steer'}
             </button>
           ))}
         </div>
@@ -193,10 +195,10 @@ export function TorpedoStation({ view, send, aim, setAim, guideId, setGuideId })
       <div className="decoy-block">
         <span>Decoy {b.decoyCooldown > 0 ? `in ${Math.ceil(b.decoyCooldown)}s` : 'ready'}:</span>
         {HEADINGS.map((h, i) => (
-          <button key={h} className="decoy-dir" onClick={() => send('decoy', { heading: i })} disabled={b.decoyCooldown > 0} title={`Throw a decoy ${HEADING_NAMES[i]}: it sounds like a boat at full speed for ${DECOY.lifeSeconds}s`}>{h}</button>
+          <button key={h} className="decoy-dir" onClick={() => send('decoy', { heading: i })} disabled={b.decoyCooldown > 0} title={`Throw a decoy ${HEADING_NAMES[i]}: it sounds like a boat at full speed for ${DECOY.lifeSeconds}s, and a torpedo's seeker goes for it first`}>{h}</button>
         ))}
       </div>
-      <p className="station-keys">Keys: L load · F fire. Click the chart to aim; a running torpedo goes where you steer it.</p>
+      <p className="station-keys">Keys: L load · F fire. Click the chart to aim; a torpedo arms after {TORPEDO.armAfter} cells, homes on a loud boat near it, and goes where you steer it.</p>
     </div>
   )
 }

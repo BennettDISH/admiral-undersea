@@ -176,7 +176,7 @@ test('the torpedo room loads a tube by power, fires at a cell in range, and the 
 
 test('a running torpedo can be steered onto a new cell, blows on rock, and is spent after its run', () => {
   const s = fresh();
-  place(s, 'alpha', 3, 6);
+  place(s, 'alpha', 2, 6);
   place(s, 'bravo', 14, 11);
   s.subs.alpha.tubes[0] = { state: 'ready', progress: 1 };
   s.subs.alpha.tubes[1] = { state: 'ready', progress: 1 };
@@ -320,6 +320,131 @@ test('two auto crews fight it out to a result inside the clock, on every seed tr
     assert.ok(fired > 0, `seed ${seed}: somebody shot`);
     assert.ok(engine.isMatch(JSON.parse(JSON.stringify(s))), 'a match survives JSON (the database)');
   }
+});
+
+test('our own speed deafens us: stopped hears best, Full hears less than half as far, with a wider bearing', () => {
+  const s = fresh();
+  const b = s.subs.alpha;
+  fullPower(s, 'alpha');
+  const at = (speed) => { b.ordered = speed; return engine.hearingRange(b, 2); };
+  assert.ok(at(0) > at(1) && at(1) > at(2) && at(2) > at(3));
+  assert.ok(at(3) < at(1) * 0.5, 'Full is nearly deaf');
+  // a boat at Half seven cells off: heard stopped, not heard at Full
+  place(s, 'alpha', 3, 6, 2);
+  place(s, 'bravo', 10, 6, 6);
+  const heard = (speed) => {
+    b.ordered = speed;
+    const ev = [];
+    engine.emitNoise(s, ev, { x: 10, y: 6, level: 2, kind: 'hull', source: 'bravo' });
+    return fxOf(ev, 'contact').map((e) => e.payload.contact);
+  };
+  assert.equal(heard(0).length, 1);
+  assert.equal(heard(3).length, 0);
+  // a loud one heard at Full comes in wider than the same heard at Slow
+  b.ordered = 1;
+  const slow = [];
+  engine.emitNoise(s, slow, { x: 10, y: 6, level: 5, kind: 'launch', source: 'bravo' });
+  b.ordered = 3;
+  const full = [];
+  engine.emitNoise(s, full, { x: 10, y: 6, level: 5, kind: 'launch', source: 'bravo' });
+  assert.ok(fxOf(full, 'contact')[0].payload.contact.width > fxOf(slow, 'contact')[0].payload.contact.width);
+});
+
+test('a torpedo arms only after three cells: a shot from closer is refused, and one steered short goes off as a dud', () => {
+  const s = fresh();
+  place(s, 'alpha', 2, 11);
+  place(s, 'bravo', 4, 11);
+  s.subs.alpha.tubes[0] = { state: 'ready', progress: 1 };
+  const close = engine.fire(s, 'alpha', 0, { x: 4, y: 11 });
+  assert.deepEqual({ ok: close.ok, reason: close.error.reason }, { ok: false, reason: 'too-close' });
+  assert.equal(engine.fire(s, 'alpha', 0, { x: 8, y: 11 }).ok, true);
+  engine.guide(s, 'alpha', s.torpedoes[0].id, { x: 4, y: 11 }); // back onto the boat two cells off
+  const ev = run(s, 2);
+  assert.equal(fxOf(ev, 'torpedo-dud').length, 1);
+  assert.equal(fxOf(ev, 'blast').length, 0);
+  assert.equal(s.subs.bravo.hull, HULL_MAX);
+});
+
+test("an armed torpedo's seeker turns onto a loud boat ahead of it, a decoy first, never a slow boat or one behind it", () => {
+  const s = fresh();
+  place(s, 'alpha', 0, 11);
+  place(s, 'bravo', 8, 10, 0);
+  const tp = { id: 1, team: 'alpha', x: 6, y: 11, tx: 10, ty: 11, run: 6 };
+  fullPower(s, 'bravo');
+  s.subs.bravo.ordered = 3;
+  assert.deepEqual(engine.seekerTarget(s, tp), { x: 8, y: 10, decoy: false }, 'Full, two cells ahead: heard');
+  s.subs.bravo.ordered = 1;
+  assert.equal(engine.seekerTarget(s, tp), null, 'Slow: not heard');
+  s.subs.bravo.ordered = 2;
+  assert.equal(engine.seekerTarget(s, tp), null, 'Half is heard only within a cell and a half');
+  s.subs.bravo.ordered = 3;
+  assert.equal(engine.seekerTarget(s, { ...tp, run: 2 }), null, 'not before it arms');
+  assert.equal(engine.seekerTarget(s, { ...tp, x: 10, tx: 15 }), null, 'not behind it');
+  s.decoys.push({ id: 2, team: 'bravo', x: 9, y: 11, heading: 6, progress: 0, life: 5, noiseIn: 1 });
+  assert.deepEqual(engine.seekerTarget(s, tp), { x: 9, y: 11, decoy: true }, 'a decoy first');
+  s.decoys[0].team = 'alpha';
+  assert.equal(engine.seekerTarget(s, tp).decoy, false, 'never its own side\'s decoy');
+  // in a vent field a boat at Full is quiet enough to slip it (B5 is a vent)
+  place(s, 'bravo', 2, 4);
+  assert.equal(engine.seekerTarget(s, { ...tp, x: 2, y: 6, tx: 2, ty: 0 }), null);
+});
+
+test('a torpedo fired at a cell near a boat at Full homes onto it; the same boat at Slow slips past', () => {
+  const shot = (speed) => {
+    const s = fresh();
+    place(s, 'alpha', 1, 11, 2);
+    place(s, 'bravo', 11, 11, 6); // three cells past the aim, making way towards it along the open bottom row
+    fullPower(s, 'bravo');
+    engine.setSpeed(s, 'bravo', speed);
+    s.subs.alpha.tubes[0] = { state: 'ready', progress: 1 };
+    assert.equal(engine.fire(s, 'alpha', 0, { x: 8, y: 11 }).ok, true);
+    const ev = run(s, 5);
+    return { hull: s.subs.bravo.hull, seeker: fxOf(ev, 'seeker').length };
+  };
+  const full = shot(3);
+  assert.ok(full.hull < HULL_MAX && full.seeker === 1, 'Full: found and hit');
+  const slow = shot(1);
+  assert.deepEqual(slow, { hull: HULL_MAX, seeker: 0 }, 'Slow: unheard, and clear of the blast');
+});
+
+test('a decoy darts off and glances along rock instead of sticking to it', () => {
+  const s = fresh();
+  place(s, 'alpha', 1, 2, 0);
+  engine.launchDecoy(s, 'alpha', 2); // east, straight at the rock at C3
+  run(s, 2.1);
+  const d = s.decoys[0];
+  assert.ok(Math.hypot(d.x - 1, d.y - 2) >= 2, `the decoy got clear (${cellName(d.x, d.y)})`);
+});
+
+test('a match is dealt a playing chart at random, never the training range (the tutorial\'s own)', () => {
+  const dealt = new Set();
+  for (let seed = 1; seed <= 40; seed++) dealt.add(engine.initMatch({ seed }).mapId);
+  assert.deepEqual([...dealt].sort(), ['black-shelf', 'narrows']);
+  assert.equal(engine.initMatch({ seed: 1, tutorial: true }).mapId, 'training-range');
+});
+
+test('the AI crew: old skill names play as Easy and Hard, anything else as Normal', () => {
+  assert.equal(engine.initMatch({ seed: 1, aiSkill: 'green' }).aiSkill, 'easy');
+  assert.equal(engine.initMatch({ seed: 1, aiSkill: 'veteran' }).aiSkill, 'hard');
+  for (const s of ['easy', 'normal', 'hard']) assert.equal(engine.initMatch({ seed: 1, aiSkill: s }).aiSkill, s);
+  assert.equal(engine.initMatch({ seed: 1, aiSkill: '__proto__' }).aiSkill, 'normal');
+});
+
+test('the Normal crew shoots back down the bearing of a boat charging at Full; the Easy one holds fire for its first minute', () => {
+  const firstShot = (aiSkill) => {
+    const s = engine.initMatch({ seed: 21, mapId: SHELF, startIndex: 0, vsAi: true, aiSkill, crew: { alpha: { helm: 'human', listener: 'human', weapons: 'human', chief: 'human' } } });
+    const map = getMap(SHELF);
+    fullPower(s, 'alpha');
+    for (let i = 0; i < 600 && !s.over; i++) {
+      const r = routeTo(map, s.subs.alpha, s.subs.bravo);
+      if (r && r.heading !== s.subs.alpha.heading) engine.setHeading(s, 'alpha', r.heading);
+      engine.setSpeed(s, 'alpha', 3);
+      if (fxOf(engine.tick(s, 0.1, ai), 'fired').some((e) => e.team === 'bravo')) return s.t;
+    }
+    return Infinity;
+  };
+  assert.ok(firstShot('normal') < 45, 'Normal answers a charge');
+  assert.ok(firstShot('easy') >= 60, 'Easy is slow to');
 });
 
 test('a stored match carries on the same: JSON in, the same ticks out', () => {

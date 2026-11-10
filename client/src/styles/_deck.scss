@@ -111,11 +111,33 @@ button.primary, .primary {
   .dc-title { font-family: var(--font-display); font-size: 1.45rem; letter-spacing: 0.04em; color: #f0f6f2; }
   .dc-sub { font-family: var(--font-body); font-size: 0.95rem; color: var(--ink-dim); line-height: 1.4; flex: 1; }
   .dc-go { font-family: var(--font-head); color: var(--amber); font-size: 1.05rem; letter-spacing: 0.1em; text-transform: uppercase; }
+  &.tutorial { border-color: #6b5a2e; }
   &.hunt { border-color: #2e6b52; }
-  &.veteran { border-color: #7a4a2a; }
   &.crews { border-color: #2d5577; }
   &:hover:not(:disabled) { transform: translateY(-3px); }
   &.on { border-color: var(--amber); box-shadow: 0 0 0 2px rgba(255, 176, 46, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45); }
+}
+// Play against AI: the three crews, opening under the cards
+@keyframes dropin { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.level-pick {
+  margin-top: 1rem; animation: dropin 0.25s ease-out;
+  h2 { font-family: var(--font-head); font-size: 1rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.6rem; }
+  .hint { margin-top: 0.6rem; }
+}
+.level-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem; }
+.level-card {
+  @extend %plate;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; text-align: left; padding: 1.1rem 1.2rem 1rem;
+  text-transform: none; letter-spacing: 0; color: var(--ink); min-height: 150px;
+  .lv-head { display: flex; width: 100%; justify-content: space-between; align-items: center; }
+  .lv-name { font-family: var(--font-display); font-size: 1.35rem; letter-spacing: 0.05em; color: #f0f6f2; }
+  .lv-pips { display: flex; gap: 4px; i { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #4d6470; background: #0b1316; } }
+  .dc-sub { font-family: var(--font-body); font-size: 0.9rem; color: var(--ink-dim); line-height: 1.4; flex: 1; }
+  .dc-go { font-family: var(--font-head); color: var(--amber); font-size: 1rem; letter-spacing: 0.1em; text-transform: uppercase; }
+  &.lv-easy { border-color: #2e6b52; .lv-pips i.on { background: var(--sonar); box-shadow: 0 0 8px var(--sonar); } }
+  &.lv-normal { border-color: #6b5a2e; .lv-pips i.on { background: var(--amber); box-shadow: 0 0 8px var(--amber); } }
+  &.lv-hard { border-color: #7a3a2a; .lv-pips i.on { background: var(--alert); box-shadow: 0 0 8px var(--alert); } }
+  &:hover:not(:disabled) { transform: translateY(-3px); }
 }
 .mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .room-toggle { display: flex; gap: 0.6rem; align-items: center; color: var(--ink-dim); input { width: 18px; height: 18px; } }
@@ -188,5 +210,5 @@ button.primary, .primary {
   .station-row { grid-template-columns: 40px 1fr auto; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .deck-sonar .sweep, .deck-sub, .deck-bubbles i, .aboard-ring { animation: none !important; }
+  .deck-sonar .sweep, .deck-sub, .deck-bubbles i, .aboard-ring, .level-pick { animation: none !important; }
 }

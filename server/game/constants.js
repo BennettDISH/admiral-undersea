@@ -30,9 +30,18 @@ const TUNING = {
   HEAR_BASE: 2,
   HEAR_PER_LEVEL: 3.2,
   HEAR_PER_SONAR: 0.8,
-  FLOW_NOISE_SPEED: 3,          // at this speed our own flow noise deafens the hydrophones
-  FLOW_NOISE_FACTOR: 0.6,
+  // Our own flow noise: how far we hear at each of our speeds (stop, slow, half, full). A boat at
+  // Full is nearly deaf, and what it does hear comes in as a wider bearing.
+  HEAR_SPEED_FACTOR: DATA.hearingAtSpeed,
+  WIDTH_AT_FULL: 1.4,
   SONAR_FAULT_FACTOR: 0.6,
+  // A running torpedo's seeker, once armed, turns onto something loud near it: a decoy within
+  // SEEKER_DECOY_RANGE (it goes for a decoy first), else a boat by the noise it makes
+  // (its speed, less a vent field's mask): Half within 1.5 cells, Full within 3, Slow never.
+  SEEKER_RANGE: [0, 0, 1.5, 3],
+  SEEKER_DECOY_RANGE: 3.5,
+  SEEKER_CONE: 70,              // degrees either side of its run that a seeker hears
+
   WIDTH_BASE: 28,
   WIDTH_PER_LEVEL: 5,
   WIDTH_PER_SONAR: 3,
@@ -44,8 +53,7 @@ const TUNING = {
   FOCUS_SECONDS: 2,             // a held station nobody is looking at is covered by the auto-crew after this
   CALL_COOLDOWN: 1.5,
   CALL_BOOST_SECONDS: 20,       // the auto chief answers a call for power for this long
-  SHOT_SPACING: 6,              // the auto torpedo room waits this long between shots
-  FIRE_MIN_DISTANCE: 2,         // nobody fires closer than this (the auto crew; the client warns a person)
+  FIRE_MIN_DISTANCE: 3.5,       // the auto torpedo room fires from at least this far (a torpedo arms after TORPEDO.armAfter)
 };
 
 module.exports = {

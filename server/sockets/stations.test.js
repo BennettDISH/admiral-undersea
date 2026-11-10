@@ -315,6 +315,40 @@ test('one player at several stations works the one on screen; the auto-crew cove
   me.drop()
 })
 
+test('the tutorial: its player presses Next and Skip; nobody else can, from this game or another, seated or not', async () => {
+  const code = newGame('STAT15', { game_mode: 'tutorial' }, { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' }, 7: { team: 'alpha', roles: 'unassigned' } })
+  const other = newGame('STAT16', { created_by: 8 }, { 8: { team: 'alpha', roles: 'helm' }, 9: { team: 'bravo', roles: 'helm' } })
+  const [me] = await started(code, 1)
+  const s = match(code)
+  assert.equal(s.tutorial.step, 'welcome')
+  assert.equal(s.mapId, 'training-range')
+  assert.deepEqual(s.crew.bravo, { helm: 'auto', listener: 'auto', weapons: 'auto', chief: 'auto' })
+  const start = roomEvents(code).find((e) => e.ev === 'game-started')
+  assert.equal(start.payload.tutorial.step, 'welcome', 'the view carries the lesson')
+
+  const [stranger] = await seated(code, 6) // no seat
+  const [idle] = await seated(code, 7) // a seat, no station
+  const [elsewhere, theirs] = await started(other, 8, 9) // seated in another game
+  for (const p of [stranger, idle, elsewhere, theirs]) await p.call('tutorial', { gameCode: code, action: 'next' })
+  await elsewhere.call('tutorial', { gameCode: other, action: 'skip' }) // not a tutorial: nothing
+  assert.equal(s.tutorial.step, 'welcome')
+  assert.equal(match(other).tutorial, undefined)
+  for (const action of ['jump', '__proto__', 'constructor', 42, null]) await me.call('tutorial', { gameCode: code, action })
+  assert.equal(s.tutorial.step, 'welcome', 'only next or skip')
+
+  await me.call('tutorial', { gameCode: code, action: 'next' })
+  assert.equal(s.tutorial.step, 'helm')
+  await me.call('tutorial', { gameCode: code, action: 'next' })
+  assert.equal(lastRejection(me).reason, 'not-now', 'a lesson is done by doing it')
+  await me.call('tutorial', { gameCode: code, action: 'skip' })
+  assert.equal(s.tutorial.step, 'listen')
+  assert.deepEqual(s.tutorial.skipped, ['helm'])
+  // the training boat is never anyone's to crew
+  await idle.call('select-team', { gameCode: code, team: 'bravo' })
+  assert.equal(seats[code][7].team, 'alpha')
+  me.drop()
+})
+
 test('a match with nobody aboard stops ticking after a while, and starts again when someone joins', async () => {
   const code = newGame('STAT11', { game_mode: 'vs-ai' }, { 1: { team: 'alpha', roles: 'helm' } });
   const [me] = await started(code, 1);

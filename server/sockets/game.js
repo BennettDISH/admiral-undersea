@@ -249,6 +249,7 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
       crew: mode.vsAi ? { alpha: crew.alpha, bravo: {} } : crew,
       vsAi: mode.vsAi,
       aiSkill: mode.aiSkill,
+      tutorial: mode.tutorial,
     });
     gameStates.set(gameCode, state);
     markDirty(gameCode);
@@ -495,6 +496,15 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
       const at = playAt(gameCode, station, 'call');
       if (!at) return;
       apply(socket, gameCode, at.state, engine.call(at.state, at.team, station, call));
+    });
+
+    // The tutorial's Next and Skip: anyone seated on the boat that is learning, holding a station.
+    on('tutorial', async ({ gameCode, action }) => {
+      const team = teamIn(gameCode);
+      if (!team || !socket.roles.length || (action !== 'next' && action !== 'skip')) return;
+      const state = gameStates.get(gameCode);
+      if (!state?.tutorial) return;
+      apply(socket, gameCode, state, engine.tutorialAct(state, team, action));
     });
 
     socket.on('disconnect', () => {

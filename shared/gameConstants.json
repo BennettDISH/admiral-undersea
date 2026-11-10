@@ -49,18 +49,42 @@
         [{ "x": 0, "y": 5 }, { "x": 15, "y": 7 }]
       ],
       "whales": [{ "x": 9, "y": 2 }, { "x": 5, "y": 9 }]
+    },
+    {
+      "id": "training-range",
+      "name": "The Training Range",
+      "training": true,
+      "rows": [
+        "............~~..",
+        "............~~..",
+        "..~~............",
+        "..~~............",
+        "................",
+        "................",
+        "................",
+        "...##...........",
+        "...##...........",
+        "................",
+        "................",
+        "................"
+      ],
+      "starts": [
+        [{ "x": 14, "y": 10 }, { "x": 5, "y": 4 }]
+      ],
+      "whales": [{ "x": 1, "y": 10 }]
     }
   ],
   "headings": ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
   "speeds": ["stop", "slow", "half", "full"],
   "secondsPerCell": [0, 2.6, 1.7, 1.1],
+  "hearingAtSpeed": [1.15, 1, 0.75, 0.45],
   "stations": ["helm", "listener", "weapons", "chief"],
   "hullMax": 5,
   "matchSeconds": 600,
   "power": { "base": 6, "max": 9, "perSystemMax": 4, "start": { "engines": 2, "sonar": 2, "tubes": 2 } },
-  "torpedo": { "speed": 2.5, "maxRun": 11, "armAfter": 1.5, "loadSecondsAtOnePower": 24, "range": 11 },
+  "torpedo": { "speed": 2.5, "maxRun": 11, "armAfter": 3, "loadSecondsAtOnePower": 24, "range": 11 },
   "ping": { "radius": 6, "chargeSeconds": { "2": 20, "3": 14, "4": 10 } },
-  "decoy": { "rechargeSeconds": 35, "lifeSeconds": 10, "secondsPerCell": 1.0 },
+  "decoy": { "rechargeSeconds": 35, "lifeSeconds": 8, "secondsPerCell": 0.5 },
   "vent": { "heat": 45, "cooldownSeconds": 12 },
   "repairSeconds": { "crew": 4, "auto": 6.5 },
   "faults": {

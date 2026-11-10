@@ -5,8 +5,12 @@ room), each depending on the others, against the AI's boat or a crew of friends.
 ours; never borrow a board game's name, roles, boards or rules text.
 
 - Rules engine: `server/game/engine.js` (pure, ticked ten times a second), the auto-crew and AI
-  boat `server/game/ai.js` (a belief map from what its own boat heard, never the truth), data in
+  boat `server/game/ai.js` (a belief map from what its own boat heard, never the truth; Easy /
+  Normal / Hard in its SKILLS), the tutorial `server/game/tutorial.js`, data in
   `shared/gameConstants.json` (charts, power, torpedoes, pings) shared with the client.
+- Balance: charging in at Full must keep losing on Normal and a careful hunt winning
+  (`server/game/balance.test.js`); after touching noise, seekers or the AI, run
+  `node server/game/playtest.js 100` and look at the table.
 - Sound: one site-wide engine (`client/src/lib/audio.js`) opened by the first click; the manifest
   `client/public/audio/manifest.json` (our sound-factory effects and songs on the media host, the
   crew's ElevenLabs lines in `client/public/audio/voice/`, made by `scripts/voices.mjs`).
