@@ -78,7 +78,8 @@ function connect(userId) {
   const handlers = {};
   const socket = {
     id: `s-${userId}-${++sockets}`, userId, username: `u${userId}`,
-    join() {}, leave() {}, to: roomEmitter,
+    _rooms: new Set(),
+    join(room) { socket._rooms.add(room) }, leave(room) { socket._rooms.delete(room) }, to: roomEmitter,
     on(ev, fn) { handlers[ev] = fn; },
     emit(ev, payload) { socket._emitted.push({ ev, payload }); },
     _emitted: [],
@@ -175,6 +176,32 @@ test('a seat in one game plays nothing in another by naming its code, and no sea
   assert.equal(stranger.socket._emitted.filter((e) => e.ev === 'game-state').length, 0, 'and no view of the match');
 });
 
+test('naming the other boat\'s torpedo or fault does nothing to it', async () => {
+  const code = newGame('STAT13', { created_by: 3 }, { 3: { team: 'alpha', roles: 'weapons,chief' }, 5: { team: 'bravo', roles: 'weapons,chief' } })
+  const [ours] = await started(code, 3, 5)
+  const s = match(code)
+  // bravo has a torpedo running and a fire burning
+  s.subs.bravo.tubes[0] = { state: 'ready', progress: 1 }
+  s.torpedoes.push({ id: 900, team: 'bravo', tube: 0, x: s.subs.bravo.x, y: s.subs.bravo.y, tx: 8, ty: 6, run: 0, noiseIn: 1 })
+  s.subs.bravo.faults.push({ id: 901, kind: 'fire' })
+  await ours.call('guide', { gameCode: code, id: 900, target: { x: s.subs.alpha.x, y: s.subs.alpha.y } })
+  await ours.call('repair', { gameCode: code, faultId: 901 })
+  assert.deepEqual({ tx: s.torpedoes[0].tx, ty: s.torpedoes[0].ty }, { tx: 8, ty: 6 }, 'their torpedo goes where they sent it')
+  assert.equal(s.subs.bravo.repair, null)
+  assert.deepEqual(rejections(ours).map((r) => r.reason), ['no-torpedo', 'no-fault'])
+})
+
+test('someone with the code but no seat is only ever in the public room, never a boat\'s', async () => {
+  const code = newGame('STAT14')
+  await started(code, 1, 5)
+  const [stranger] = await seated(code, 6)
+  await stranger.call('select-team', { gameCode: code, team: 'bravo' })
+  await stranger.call('focus', { gameCode: code, station: 'helm' })
+  assert.deepEqual([...stranger.socket._rooms], [`game:${code}`])
+  assert.equal(seats[code][6], undefined, 'no seat taken mid-game')
+  assert.equal(stranger.socket._emitted.filter((e) => e.ev === 'game-state').length, 0)
+})
+
 test('a seat without a station sees its boat but plays nothing', async () => {
   const code = newGame('STAT05');
   await started(code, 1, 7);
@@ -267,6 +294,26 @@ test('a station whose people have all gone is handed to the auto-crew, and hande
   assert.ok(back.socket._emitted.some((e) => e.ev === 'game-state'));
   five.drop();
 });
+
+test('one player at several stations works the one on screen; the auto-crew covers the others, never the helm', async () => {
+  const code = newGame('STAT12', { game_mode: 'vs-ai' }, { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' } })
+  const [me] = await started(code, 1)
+  const s = match(code)
+  await me.call('focus', { gameCode: code, station: 'listener' })
+  server._tickAll()
+  for (const st of ['weapons', 'chief']) s.awaySince.alpha[st] -= TUNING.FOCUS_SECONDS * 1000
+  server._tickAll()
+  assert.deepEqual({ ...s.away.alpha }, { weapons: true, chief: true }, 'the tubes and the engine room are covered')
+  assert.ok(!s.awaySince.alpha.helm, 'the helm keeps its last order instead')
+  await me.call('focus', { gameCode: code, station: 'weapons' })
+  server._tickAll()
+  assert.equal(s.away.alpha.weapons, false, 'back the moment they look')
+  // a station they do not hold is not theirs to focus: then nothing is covered
+  await me.call('focus', { gameCode: code, station: 'captain' })
+  server._tickAll()
+  assert.equal(s.away.alpha.chief, false)
+  me.drop()
+})
 
 test('a match with nobody aboard stops ticking after a while, and starts again when someone joins', async () => {
   const code = newGame('STAT11', { game_mode: 'vs-ai' }, { 1: { team: 'alpha', roles: 'helm' } });

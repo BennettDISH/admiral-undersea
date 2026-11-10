@@ -3,7 +3,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { react, ending, newMemory } from '../src/game/reactions.js'
-import { chart, shotProblem, cellsAlong, cellName, clockText, canStep, bearing, headingFor, loadSeconds } from '../src/game/rules.js'
+import { chart, shotProblem, cellsAlong, cellName, clockText, canStep, bearing, headingFor, loadSeconds, crossing } from '../src/game/rules.js'
 import { isSoundName } from '../src/lib/soundNames.js'
 import { LINES } from '../src/game/voice.js'
 
@@ -89,4 +89,14 @@ test('the client rules agree with the chart: steps, shots, names and the clock',
   assert.equal(headingFor(bearing({ x: 5, y: 5 }, { x: 8, y: 2 })), 1)
   assert.equal(loadSeconds(0), Infinity)
   assert.equal(loadSeconds(2, 2), loadSeconds(1))
+})
+
+test('two bearings from two spots cross on the boat they both heard; parallel or same-spot ones do not', () => {
+  const at = { x: 10, y: 4 }
+  const from = (ox, oy) => ({ ox, oy, bearing: bearing({ x: ox, y: oy }, at) })
+  const p = crossing(from(2, 4), from(6, 10))
+  assert.ok(Math.abs(p.x - 10) < 1e-6 && Math.abs(p.y - 4) < 1e-6)
+  assert.equal(crossing(from(2, 4), from(2.5, 4.5)), null, 'too close together to fix anything')
+  assert.equal(crossing({ ox: 0, oy: 0, bearing: 90 }, { ox: 0, oy: 3, bearing: 90 }), null, 'parallel')
+  assert.equal(crossing({ ox: 0, oy: 0, bearing: 90 }, { ox: 5, oy: 5, bearing: 180 }), null, 'they would only meet behind one of them')
 })

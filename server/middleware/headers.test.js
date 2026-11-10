@@ -40,6 +40,7 @@ test('pages and API answers carry an enforced CSP that names the widget, Google 
     assert.ok(directive(csp, 'style-src').includes('https://fonts.googleapis.com'), `${url}: the font stylesheet`);
     assert.ok(directive(csp, 'font-src').includes('https://fonts.gstatic.com'), `${url}: the font files`);
     assert.ok(directive(csp, 'img-src').includes('blob:'), `${url}: the widget's screenshot is a blob:`);
+    assert.deepStrictEqual(directive(csp, 'img-src').filter((s) => /^https?:/.test(s)), [MEDIA_ORIGIN], `${url}: sprite atlases from the media host, no other`);
     assert.deepStrictEqual(directive(csp, 'frame-ancestors'), ["'none'"], url);
     assert.ok(!/unsafe-eval/.test(csp), `${url}: no eval`);
   }

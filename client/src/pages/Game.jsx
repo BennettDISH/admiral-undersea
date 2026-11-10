@@ -46,7 +46,7 @@ function SoundControls() {
 function Game({ user }) {
   const { code } = useParams()
   const navigate = useNavigate()
-  const { game, players, seat, view, contacts, over, refusal, send, onFx } = useMatch(code, user)
+  const { game, players, seat, view, contacts, over, refusal, send, onFx, joins } = useMatch(code, user)
   const audio = getAudio()
   useScene('game')
   useEffect(() => { loadArt() }, [])
@@ -71,6 +71,8 @@ function Game({ user }) {
   const logId = useRef(0)
 
   useEffect(() => { if (!active && myRoles.length) setActive(myRoles[0]) }, [myRoles, active])
+  // the station on screen is the one this player works; the auto-crew covers their others
+  useEffect(() => { if (active && joins) send('focus', { station: active }) }, [active, joins, send])
 
   // a line spoken: the face that says it talks, with the words under it
   const speak = useCallback((name) => {

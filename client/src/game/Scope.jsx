@@ -22,6 +22,9 @@ export default function Scope({ view, contacts, size = 260 }) {
     let raf = 0
     const draw = (nowMs) => {
       raf = requestAnimationFrame(draw)
+      try { paint(nowMs) } catch { /* next frame */ }
+    }
+    const paint = (nowMs) => {
       const { view: v, contacts: cs } = live.current
       const ctx = canvas.getContext('2d')
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -62,7 +65,7 @@ export default function Scope({ view, contacts, size = 260 }) {
           const age = v.t - k.t
           if (age > TTL || age < -1) continue
           const [R, G, B] = COLOURS[k.kind] || COLOURS.hull
-          const fade = 1 - age / TTL
+          const fade = Math.max(0, Math.min(1, 1 - age / TTL))
           if (k.exact) {
             const dx = k.x - v.boat.x
             const dy = k.y - v.boat.y
@@ -92,7 +95,7 @@ export default function Scope({ view, contacts, size = 260 }) {
         if (v.ping && v.t - v.ping.t < 8) {
           const age = v.t - v.ping.t
           ctx.strokeStyle = `rgba(140, 255, 210, ${Math.max(0, 0.8 - age / 8)})`
-          ctx.beginPath(); ctx.arc(c, c, Math.min(1, age / 1.2) * r * Math.min(1, v.ping.radius / RANGE), 0, Math.PI * 2); ctx.stroke()
+          ctx.beginPath(); ctx.arc(c, c, Math.max(0, Math.min(1, age / 1.2)) * r * Math.min(1, v.ping.radius / RANGE), 0, Math.PI * 2); ctx.stroke()
         }
       }
 

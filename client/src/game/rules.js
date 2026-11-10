@@ -112,6 +112,24 @@ export function cellsAlong(a, b) {
   return out
 }
 
+/**
+ * Where two bearing lines cross, in cells, or null: they must come from spots at least a cell and a
+ * half apart, meet at a real angle (12 degrees or more), and cross ahead of both.
+ */
+export function crossing(a, b) {
+  if (Math.hypot(a.ox - b.ox, a.oy - b.oy) < 1.5) return null
+  const ra = (a.bearing * Math.PI) / 180
+  const rb = (b.bearing * Math.PI) / 180
+  const da = { x: Math.sin(ra), y: -Math.cos(ra) }
+  const db = { x: Math.sin(rb), y: -Math.cos(rb) }
+  const den = da.x * db.y - da.y * db.x
+  if (Math.abs(den) < Math.sin((12 * Math.PI) / 180)) return null
+  const t = ((b.ox - a.ox) * db.y - (b.oy - a.oy) * db.x) / den
+  const u = ((b.ox - a.ox) * da.y - (b.oy - a.oy) * da.x) / den
+  if (t <= 0 || u <= 0) return null
+  return { x: a.ox + da.x * t, y: a.oy + da.y * t }
+}
+
 /** Why a shot at `target` would not go as planned, or null when it is clean. */
 export function shotProblem(map, from, target) {
   if (!target) return 'No target'

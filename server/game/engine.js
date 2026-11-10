@@ -487,7 +487,8 @@ function tickBoat(state, team, dt, events) {
   const step = stepFrom(map, b, b.heading);
   const diagonal = b.heading % 2 === 1;
   b.progress += dt / (SECONDS_PER_CELL[speed] * (diagonal ? 1.41 : 1));
-  if (!step.ok && b.progress >= 0.5) {
+  // The helm hears of a rock a whole cell before the boat reaches it.
+  if (!step.ok) {
     const k = `${b.x},${b.y},${b.heading}`;
     if (b.warned !== k) { b.warned = k; events.push(teamFx(team, 'rocks-ahead', {})); }
   }
@@ -496,7 +497,8 @@ function tickBoat(state, team, dt, events) {
   if (!step.ok) {
     b.ordered = 0;
     b.warned = null;
-    if (speed >= 2) {
+    // Only a boat at full speed hurts itself; slower, it bumps and stops.
+    if (speed >= 3) {
       events.push(teamFx(team, 'collision', { damage: 1 }));
       emitNoise(state, events, { x: b.x, y: b.y, level: 4, kind: 'scrape', source: team });
       hurt(state, team, 1, 'rock', events);

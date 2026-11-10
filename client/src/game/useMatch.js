@@ -25,6 +25,7 @@ export function useMatch(code, user) {
   const [contacts, setContacts] = useState([])
   const [over, setOver] = useState(null)
   const [refusal, setRefusal] = useState(null)
+  const [joins, setJoins] = useState(0) // a full view comes after each (re)join
   const fxListeners = useRef(new Set())
   const viewRef = useRef(null)
 
@@ -45,7 +46,7 @@ export function useMatch(code, user) {
       if (!v || v.v !== 2) return
       viewRef.current = v
       setView(v)
-      if (v.contacts) setContacts(mergeContacts([], v.contacts, v.t))
+      if (v.contacts) { setContacts(mergeContacts([], v.contacts, v.t)); setJoins((n) => n + 1) }
       if (v.over) setOver((o) => o || v.over)
     }
     const onFx = (ev) => {
@@ -73,5 +74,5 @@ export function useMatch(code, user) {
   const send = useCallback((event, payload = {}) => socket.emit(event, { gameCode: code, ...payload }), [code])
   const onFx = useCallback((fn) => { fxListeners.current.add(fn); return () => fxListeners.current.delete(fn) }, [])
 
-  return { game, players, seat, view, contacts, over, refusal, send, onFx }
+  return { game, players, seat, view, contacts, over, refusal, send, onFx, joins }
 }

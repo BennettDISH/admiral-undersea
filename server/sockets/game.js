@@ -72,6 +72,7 @@ async function sweepMatches(now = Date.now()) {
       dropped += 1;
     }
   }
+  for (const [code, here] of presence) if (here.size === 0 && !running.has(code)) presence.delete(code);
   await matchStore.purge();
   return dropped;
 }
@@ -144,25 +145,33 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
   function leaveGame(socket) {
     const code = socket.gameCode;
     if (!code) return;
-    presence.get(code)?.delete(socket.id);
+    const here = presence.get(code);
+    if (!here) return;
+    here.delete(socket.id);
+    if (here.size === 0 && !running.has(code)) presence.delete(code);
   }
 
   // Hand a station to the auto-crew when nobody holding it has been aboard for a while, and give
-  // it back the moment one of them returns. Returns whether anything changed.
+  // it back the moment one of them returns. A player holding several stations works the one on
+  // their screen: the auto-crew covers the others they hold (a moment after they look away), except
+  // the helm, which keeps its last order. Returns whether anything changed.
   function updateAway(gameCode, state, now) {
     const here = [...aboard(gameCode).values()];
     let changed = false;
     state.awaySince = state.awaySince || { alpha: {}, bravo: {} };
+    const attends = (p, s) => p.roles.includes(s) && (p.roles.length === 1 || s === 'helm' || !p.focus || p.focus === s);
     for (const team of TEAMS) {
       for (const s of STATIONS) {
         if (state.crew[team][s] !== 'human') continue;
-        const manned = here.some((p) => p.team === team && p.roles.includes(s));
+        const holders = here.filter((p) => p.team === team && p.roles.includes(s));
+        const manned = holders.some((p) => attends(p, s));
+        const wait = holders.length ? TUNING.FOCUS_SECONDS : TUNING.AWAY_SECONDS;
         if (manned) {
           delete state.awaySince[team][s];
           if (state.away[team][s]) { state.away[team][s] = false; changed = true; }
         } else {
           state.awaySince[team][s] = state.awaySince[team][s] ?? now;
-          if (!state.away[team][s] && now - state.awaySince[team][s] >= TUNING.AWAY_SECONDS * 1000) {
+          if (!state.away[team][s] && now - state.awaySince[team][s] >= wait * 1000) {
             state.away[team][s] = true;
             changed = true;
           }
@@ -344,7 +353,7 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
       // fresh one for a game being played that has none), and is counted aboard.
       const team = socket.team;
       if (!team || !row) return;
-      aboard(gameCode).set(socket.id, { team, roles: socket.roles });
+      aboard(gameCode).set(socket.id, { team, roles: socket.roles, focus: null });
       const state = await playableState(gameCode, row);
       if (!state?.subs || socket.gameCode !== gameCode || socket.team !== team) return;
       startTicking(gameCode);
@@ -407,6 +416,13 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
       const state = newMatch(gameCode, row, await crewOf(row.id));
       for (const team of TEAMS) io.to(`${room}:${team}`).emit('game-started', engine.teamView(state, team, { contacts: true }));
       startTicking(gameCode);
+    });
+
+    // Which of this player's stations is on their screen (the auto-crew covers their others).
+    on('focus', async ({ gameCode, station }) => {
+      if (!joined(gameCode) || !socket.team) return;
+      const entry = aboard(gameCode).get(socket.id);
+      if (entry) entry.focus = socket.roles.includes(station) ? station : null;
     });
 
     // ---- the stations ------------------------------------------------------

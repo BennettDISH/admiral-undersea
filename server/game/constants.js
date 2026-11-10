@@ -41,6 +41,7 @@ const TUNING = {
   WIDTH_MAX: 45,
   NEAR_CELLS: 3,                // a contact this close is marked near
   AWAY_SECONDS: 15,             // a station whose players are all gone this long is run by the auto-crew
+  FOCUS_SECONDS: 2,             // a held station nobody is looking at is covered by the auto-crew after this
   CALL_COOLDOWN: 1.5,
   CALL_BOOST_SECONDS: 20,       // the auto chief answers a call for power for this long
   SHOT_SPACING: 6,              // the auto torpedo room waits this long between shots

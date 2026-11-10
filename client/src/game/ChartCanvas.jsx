@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { chart, cellName, dist, shotProblem, TORPEDO, delta } from './rules'
+import { chart, cellName, dist, shotProblem, TORPEDO, delta, crossing } from './rules'
 import { PALETTE, drawRock, drawVent, drawSub, drawTorpedo, drawWhale, drawBlast, drawReticle } from './draw'
 import { getSprites } from './sprites'
 
@@ -53,6 +53,10 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
 
     const frame = (nowMs) => {
       raf = requestAnimationFrame(frame)
+      // one bad frame must never blank the table: skip it and draw the next
+      try { draw(nowMs) } catch { /* next frame */ }
+    }
+    const draw = (nowMs) => {
       const { view: v, contacts: cs, mode: m, aim: a, guideId: gid, effects: fxList, hover: hv } = live.current
       const ctx = canvas.getContext('2d')
       if (!v || !size.w) return
@@ -107,7 +111,7 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
       for (const c of cs || []) {
         const age = v.t - c.t
         if (age > CONTACT_TTL || age < -1) continue
-        const fade = Math.max(0, 1 - age / CONTACT_TTL)
+        const fade = Math.max(0, Math.min(1, 1 - age / CONTACT_TTL))
         const col = KIND_COLOUR[c.kind] || PALETTE.hull
         if (c.exact) {
           ctx.save()
@@ -120,7 +124,8 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
           ctx.restore()
           continue
         }
-        const grow = Math.min(1, (age + 0.05) / 0.6)
+        // a contact can arrive a moment before the view that carries its time
+        const grow = Math.max(0.02, Math.min(1, (age + 0.05) / 0.6))
         const from = { x: cx(c.ox), y: cy(c.oy) }
         const len = s * 16 * grow
         const a = ((c.bearing - 90) * Math.PI) / 180
@@ -145,11 +150,30 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
         ctx.restore()
       }
 
+      // where recent machinery bearings from different spots cross: a small amber cross each
+      const lines = (cs || []).filter((c) => !c.exact && (c.kind === 'hull' || c.kind === 'vent' || c.kind === 'launch') && v.t - c.t < 25 && v.t - c.t >= 0)
+      ctx.save()
+      ctx.strokeStyle = 'rgba(255, 190, 90, 0.75)'
+      ctx.lineWidth = 1.5
+      for (let i = 0; i < lines.length; i++) {
+        for (let j = i + 1; j < lines.length; j++) {
+          const p = crossing(lines[i], lines[j])
+          if (!p || p.x < -0.5 || p.y < -0.5 || p.x > 15.5 || p.y > 11.5) continue
+          const age = v.t - Math.min(lines[i].t, lines[j].t)
+          ctx.globalAlpha = Math.max(0.15, 1 - age / 25)
+          const px = cx(p.x)
+          const py = cy(p.y)
+          const k = s * 0.14
+          ctx.beginPath(); ctx.moveTo(px - k, py - k); ctx.lineTo(px + k, py + k); ctx.moveTo(px + k, py - k); ctx.lineTo(px - k, py + k); ctx.stroke()
+        }
+      }
+      ctx.restore()
+
       // the last ping: a ring going out, then what it found, fading
       if (v.ping) {
         const age = v.t - v.ping.t
         if (age >= 0 && age < 8) {
-          const r = Math.min(1, age / 1.2) * v.ping.radius * s
+          const r = Math.max(0, Math.min(1, age / 1.2)) * v.ping.radius * s
           ctx.save()
           ctx.strokeStyle = `rgba(120, 255, 210, ${Math.max(0, 0.9 - age / 8)})`
           ctx.lineWidth = 2

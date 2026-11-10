@@ -1,17 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { STATION_INFO, STATIONS } from './rules'
-import { clipOf, frameAt } from './sprites'
+import { drawPortrait, hasSet } from './sprites'
 
 const TINT = { helm: '#7fb6d8', listener: '#8fd8a8', weapons: '#d89a6f', chief: '#c9b37a' }
-
-function drawLayer(ctx, clip, t, w, h) {
-  const f = frameAt(clip, t)
-  if (!f) return
-  const scale = Math.min(w / f.w, h / f.h)
-  const dw = f.w * scale
-  const dh = f.h * scale
-  ctx.drawImage(clip.image, f.x, f.y, f.w, f.h, (w - dw) / 2, h - dh, dw, dh)
-}
 
 // A stand-in face (until the sprite factory's portrait loads): a head and shoulders in the
 // station's colour, a mouth that moves while the line plays, and a blink now and then.
@@ -71,15 +62,16 @@ export function Portrait({ station, talking, size = 88 }) {
       }
       if (!talk) mouth = 'closed'
       const set = `crew-${station}`
-      const body = clipOf(set)
       ctx.clearRect(0, 0, size, size)
-      if (!body) { drawStandIn(ctx, station, size, size, talk, blink); return }
-      ctx.fillStyle = '#0d1a20'
+      if (!hasSet(set)) { drawStandIn(ctx, station, size, size, talk, blink); return }
+      const bg = ctx.createLinearGradient(0, 0, 0, size)
+      bg.addColorStop(0, '#1a2a30')
+      bg.addColorStop(1, '#0a1215')
+      ctx.fillStyle = bg
       ctx.fillRect(0, 0, size, size)
-      drawLayer(ctx, body, t, size, size)
-      const m = clipOf(`${set}-mouth-${mouth}`) || clipOf(`${set}-mouth-${talk ? 'open' : 'closed'}`) || clipOf(`${set}-mouth-closed`)
-      if (m) drawLayer(ctx, m, t, size, size)
-      if (blink) { const l = clipOf(`${set}-blink`); if (l) drawLayer(ctx, l, t, size, size) }
+      const mouthSet = [`${set}-mouth-${mouth}`, `${set}-mouth-${talk ? 'open' : 'closed'}`, `${set}-mouth-closed`].find(hasSet)
+      const parts = [mouthSet, blink && hasSet(`${set}-blink`) ? `${set}-blink` : null].filter(Boolean)
+      drawPortrait(ctx, set, t, size, parts)
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
@@ -96,7 +88,8 @@ export default function CrewPanel({ view, players, myRoles, speaking, caption, n
     <div className="crew-panel">
       {STATIONS.map((s) => {
         const mine = myRoles.includes(s)
-        const who = mine ? 'YOU' : view.crew[s] === 'auto' ? 'AUTO-CREW' : (players.find((p) => (p.roles || '').split(',').includes(s))?.username || 'crew')
+        const covered = view.crew[s] === 'auto'
+        const who = mine ? (covered ? 'YOU · crew covering' : 'YOU') : covered ? 'AUTO-CREW' : (players.find((p) => (p.roles || '').split(',').includes(s))?.username || 'crew')
         return (
           <button
             key={s}
@@ -106,7 +99,7 @@ export default function CrewPanel({ view, players, myRoles, speaking, caption, n
           >
             <Portrait station={s} talking={speaking === s} />
             <span className="crew-room">{STATION_INFO[s].room}</span>
-            <span className={`crew-who ${who === 'AUTO-CREW' ? 'auto' : ''}`}>{who}</span>
+            <span className={`crew-who ${covered ? 'auto' : ''}`}>{who}</span>
             {needs[s] && <span className="crew-lamp" />}
             {speaking === s && caption && <span className="crew-caption">“{caption}”</span>}
           </button>
