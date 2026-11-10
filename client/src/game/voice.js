@@ -27,6 +27,7 @@ export const LINES = {
   'voice.listener.ping-hit': 'Ping return. Got them!',
   'voice.listener.ping-miss': 'Ping is clean. Nothing close.',
   'voice.listener.mark': 'Target marked.',
+  'voice.listener.deaf': 'Flow noise! I can hardly hear a thing at full speed.',
 
   'voice.weapons.loaded-1': 'Tube one loaded.',
   'voice.weapons.loaded-2': 'Tube two loaded.',
@@ -35,6 +36,9 @@ export const LINES = {
   'voice.weapons.hit': 'Good hit! We got them!',
   'voice.weapons.miss': 'Miss. Reloading.',
   'voice.weapons.flood': 'Flooding in the torpedo room!',
+  'voice.weapons.too-close': "Too close! It won't arm.",
+  'voice.weapons.homing': 'Our fish has them on its seeker!',
+  'voice.weapons.decoyed': 'They decoyed our fish!',
 
   'voice.chief.power': 'More power, aye.',
   'voice.chief.fire': 'Fire in the engine room!',

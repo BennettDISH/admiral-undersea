@@ -488,6 +488,30 @@
     "dive": {
       "src": "https://media.bennettdishmanmedia.com/sounds/admiral-dive/admiral-dive-1-956cc082.mp3",
       "gain": 0.55
+    },
+    "voice.listener.deaf": {
+      "src": [
+        "/audio/voice/listener-deaf.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.too-close": {
+      "src": [
+        "/audio/voice/weapons-too-close.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.homing": {
+      "src": [
+        "/audio/voice/weapons-homing.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.decoyed": {
+      "src": [
+        "/audio/voice/weapons-decoyed.mp3"
+      ],
+      "gain": 1
     }
   }
 }

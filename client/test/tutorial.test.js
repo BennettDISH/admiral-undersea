@@ -56,17 +56,33 @@ test('the deck\'s modes: the tutorial and the three crews are played against one
 })
 
 test('the new hunt events: our seeker homing, a dud, and the listener going deaf at Full (once in a while)', () => {
-  for (const ev of [{ type: 'seeker', id: 4, on: 'boat' }, { type: 'seeker', id: 4, on: 'decoy' }, { type: 'torpedo-dud', id: 4 }, { type: 'tutorial', step: 'helm' }]) {
+  for (const ev of [{ type: 'seeker', id: 4, on: 'boat' }, { type: 'seeker', id: 4, on: 'decoy' }, { type: 'torpedo-dud', id: 4 }, { type: 'tutorial', step: 'helm' }, { type: 'helm', heading: 2, speed: 3 }]) {
     const cue = react(ev, ctx())
     for (const [name] of cue.sounds) assert.ok(isSoundName(name), `${ev.type}: ${name}`)
     if (cue.say) assert.ok(LINES[cue.say], `${ev.type}: ${cue.say}`)
+    if (cue.then) assert.ok(LINES[cue.then.name], `${ev.type}: ${cue.then.name}`)
   }
-  assert.match(react({ type: 'seeker', id: 4, on: 'boat' }, ctx()).log.text, /homing/)
-  assert.match(react({ type: 'seeker', id: 4, on: 'decoy' }, ctx()).log.text, /decoy/)
+  const homing = react({ type: 'seeker', id: 4, on: 'boat' }, ctx())
+  assert.deepEqual([homing.say, /homing/.test(homing.log.text)], ['voice.weapons.homing', true])
+  const decoyed = react({ type: 'seeker', id: 4, on: 'decoy' }, ctx())
+  assert.deepEqual([decoyed.say, /decoy/.test(decoyed.log.text)], ['voice.weapons.decoyed', true])
+  assert.equal(react({ type: 'torpedo-dud', id: 4 }, ctx()).say, 'voice.weapons.too-close')
   const memory = newMemory()
   const full = react({ type: 'helm', heading: 2, speed: 3 }, ctx({ memory }))
-  assert.deepEqual([full.say, full.caption.station], ['voice.helm.full', 'listener'])
+  assert.deepEqual([full.say, full.then.name], ['voice.helm.full', 'voice.listener.deaf'], 'the helm answers, then the listener complains')
   react({ type: 'helm', heading: 2, speed: 1 }, ctx({ memory, now: 3000 }))
-  assert.equal(react({ type: 'helm', heading: 2, speed: 3 }, ctx({ memory, now: 6000 })).caption, null, 'not every time')
-  assert.equal(react({ type: 'helm', heading: 2, speed: 2 }, ctx()).caption, null, 'only at Full')
+  assert.equal(react({ type: 'helm', heading: 2, speed: 3 }, ctx({ memory, now: 6000 })).then, null, 'not every time')
+  assert.equal(react({ type: 'helm', heading: 2, speed: 2 }, ctx()).then, null, 'only at Full')
+})
+
+test('every crew line has its recording in the manifest, served from this site', async () => {
+  const { readFileSync } = await import('node:fs')
+  const manifest = JSON.parse(readFileSync(new URL('../public/audio/manifest.json', import.meta.url), 'utf8'))
+  for (const name of Object.keys(LINES)) {
+    const entry = manifest.sounds[name]
+    assert.ok(entry, `${name} is in the manifest`)
+    const src = [].concat(entry.src)[0]
+    assert.match(src, /^\/audio\/voice\/[a-z-]+\.mp3$/, name)
+    assert.ok(readFileSync(new URL(`../public${src}`, import.meta.url)).length > 1000, `${name} has a recording`)
+  }
 })

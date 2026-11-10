@@ -87,11 +87,6 @@ function Game({ user }) {
     setTimeout(() => setSpeaking({ station, caption }), startIn * 1000)
     setTimeout(() => setSpeaking((s) => (s && s.caption === caption ? null : s)), (startIn + seconds + 0.3) * 1000)
   }, [audio])
-  // a remark with no recorded line: the face talks, the words show under it
-  const remark = useCallback(({ station, text, delay = 0 }) => {
-    setTimeout(() => setSpeaking({ station, caption: text }), delay * 1000)
-    setTimeout(() => setSpeaking((s) => (s && s.caption === text ? null : s)), (delay + 2.6) * 1000)
-  }, [])
 
   const feel = useCallback((shake, flash) => {
     if (reduceMotion()) return
@@ -112,7 +107,7 @@ function Game({ user }) {
     const cue = react(ev, { team, boat: v?.boat, now: Date.now(), memory: memory.current })
     for (const [name, opts] of cue.sounds) audio.play(name, opts)
     if (cue.say) speak(cue.say)
-    if (cue.caption) remark(cue.caption)
+    if (cue.then) setTimeout(() => speak(cue.then.name), (cue.then.delay || 0) * 1000)
     if (cue.alarm) setAlarmUntil(Date.now() + cue.alarm * 1000)
     if (cue.shake || cue.flash) feel(cue.shake, cue.flash)
     if (cue.visual?.kind === 'blast') setEffects((list) => [...list.filter((e) => performance.now() - e.at < 3000), { ...cue.visual, at: performance.now() }])
@@ -123,7 +118,7 @@ function Game({ user }) {
       const id = ++logId.current
       setLog((l) => [...l.slice(-40), { id, ...cue.log, t: v?.t ?? 0 }])
     }
-  }), [onFx, team, audio, speak, remark, feel])
+  }), [onFx, team, audio, speak, feel])
 
   // the tutorial: each new lesson brings its station up on screen, with a beep from the console
   const lesson = view?.tutorial?.step
@@ -140,9 +135,10 @@ function Game({ user }) {
     if (!refusal || ['too-soon', 'not-charged', 'tube-busy'].includes(refusal.reason)) return
     setToast(refusal.message || `${refusal.action}: ${String(refusal.reason).replace(/-/g, ' ')}`)
     audio.play('ui.beep', { pitch: 0.6 })
+    if (refusal.reason === 'too-close') speak('voice.weapons.too-close')
     const id = setTimeout(() => setToast(null), 3200)
     return () => clearTimeout(id)
-  }, [refusal, audio])
+  }, [refusal, audio, speak])
 
   // the dive, once, as the match starts
   const dived = useRef(false)

@@ -18,11 +18,11 @@ function every(memory, key, ms, now) {
 
 /**
  * The cues for one event. `ctx` is { team, boat (our view's boat, may be null), now (ms), memory }.
- * Returns { sounds: [[name, opts]], say, caption, visual, log, alarm, shake, flash, tension }.
- * `caption` is a remark with no recorded line: { station, text, delay (s) } shown under that face.
+ * Returns { sounds: [[name, opts]], say, then, visual, log, alarm, shake, flash, tension }.
+ * `then` is a second line, { name, delay (s) }, said a moment after `say`.
  */
 export function react(ev, { team, boat, now = Date.now(), memory = newMemory() }) {
-  const out = { sounds: [], say: null, caption: null, visual: null, log: null, alarm: 0, shake: null, flash: false, tension: 0 }
+  const out = { sounds: [], say: null, then: null, visual: null, log: null, alarm: 0, shake: null, flash: false, tension: 0 }
   const sound = (name, opts = {}) => out.sounds.push([name, opts])
   const say = (name, gapMs = 0) => { if (!gapMs || every(memory, name, gapMs, now)) out.say = out.say || name }
   const log = (kind, text) => { out.log = { kind, text } }
@@ -100,12 +100,13 @@ export function react(ev, { team, boat, now = Date.now(), memory = newMemory() }
       log('info', 'Our torpedo ran out of fuel')
       break
     case 'torpedo-dud':
-      say('voice.weapons.miss')
+      say('voice.weapons.too-close')
       log('info', 'Our torpedo never armed: it ended its run inside three cells')
       break
     case 'seeker':
       if (every(memory, `seeker-${ev.id}-${ev.on}`, 60000, now)) {
         sound('blip', { pitch: 1.9, vol: 0.7 })
+        say(ev.on === 'decoy' ? 'voice.weapons.decoyed' : 'voice.weapons.homing')
         log('attack', ev.on === 'decoy' ? 'Our torpedo went for their decoy' : 'Our torpedo\'s seeker hears them: it is homing')
         out.tension = 0.8
       }
@@ -207,7 +208,7 @@ export function react(ev, { team, boat, now = Date.now(), memory = newMemory() }
         say(SPEED_LINES[ev.speed], 2500)
         // At Full the listener can hardly hear a thing, and everybody can hear us.
         if (ev.speed === 3 && every(memory, 'deaf', 45000, now)) {
-          out.caption = { station: 'listener', text: 'Flow noise! I can hardly hear a thing at Full.', delay: 1.6 }
+          out.then = { name: 'voice.listener.deaf', delay: 1.6 }
           log('alarm', 'Full ahead: our hydrophones are nearly deaf, and we are heard across the sea')
         }
       }

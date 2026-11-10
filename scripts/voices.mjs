@@ -22,13 +22,15 @@ const MANIFEST = resolve(ROOT, 'client/public/audio/manifest.json')
 const API = 'https://api.elevenlabs.io/v1'
 const MODEL = 'eleven_multilingual_v2'
 
-// The voice for each speaker (ElevenLabs voice ids, picked from --list) and how it is played.
+// The voice for each speaker (ElevenLabs voice ids, picked from --list; VOICE_<SPEAKER> in the
+// environment overrides one) and how it is played. These are the crew's voices since 2026-11-09:
+// Charlie at the helm, Alice listening, Harry in the torpedo room, Hector the chief, Adam on deck.
 export const CAST = {
-  helm: { voice: process.env.VOICE_HELM, settings: { stability: 0.45, similarity_boost: 0.8, style: 0.3 } },
-  listener: { voice: process.env.VOICE_LISTENER, settings: { stability: 0.4, similarity_boost: 0.8, style: 0.35 } },
-  weapons: { voice: process.env.VOICE_WEAPONS, settings: { stability: 0.35, similarity_boost: 0.8, style: 0.45 } },
-  chief: { voice: process.env.VOICE_CHIEF, settings: { stability: 0.45, similarity_boost: 0.8, style: 0.35 } },
-  deck: { voice: process.env.VOICE_DECK, settings: { stability: 0.5, similarity_boost: 0.8, style: 0.4 } },
+  helm: { voice: process.env.VOICE_HELM || 'IKne3meq5aSn9XLyUdCD', settings: { stability: 0.45, similarity_boost: 0.8, style: 0.3 } },
+  listener: { voice: process.env.VOICE_LISTENER || 'Xb7hH8MSUJpSbSDYk0k2', settings: { stability: 0.4, similarity_boost: 0.8, style: 0.35 } },
+  weapons: { voice: process.env.VOICE_WEAPONS || 'SOYHLrjzK2X1ezoPC6cr', settings: { stability: 0.35, similarity_boost: 0.8, style: 0.45 } },
+  chief: { voice: process.env.VOICE_CHIEF || 'dgkKQcJqyy5AP0dqleUU', settings: { stability: 0.45, similarity_boost: 0.8, style: 0.35 } },
+  deck: { voice: process.env.VOICE_DECK || 'pNInz6obpgDQGcFmaJgB', settings: { stability: 0.5, similarity_boost: 0.8, style: 0.4 } },
 }
 
 const args = process.argv.slice(2)
