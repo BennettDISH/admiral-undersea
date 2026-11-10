@@ -82,7 +82,7 @@ test('every crew line has its recording in the manifest, served from this site',
     const entry = manifest.sounds[name]
     assert.ok(entry, `${name} is in the manifest`)
     const src = [].concat(entry.src)[0]
-    assert.match(src, /^\/audio\/voice\/[a-z-]+\.mp3$/, name)
+    assert.match(src, /^\/audio\/voice\/[a-z0-9-]+\.mp3$/, name)
     assert.ok(readFileSync(new URL(`../public${src}`, import.meta.url)).length > 1000, `${name} has a recording`)
   }
 })

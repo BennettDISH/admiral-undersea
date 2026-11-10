@@ -27,7 +27,7 @@ export const LINES = {
   'voice.listener.ping-hit': 'Ping return. Got them!',
   'voice.listener.ping-miss': 'Ping is clean. Nothing close.',
   'voice.listener.mark': 'Target marked.',
-  'voice.listener.deaf': 'Flow noise! I can hardly hear a thing at full speed.',
+  'voice.listener.deaf': "Flow noise! I can't hear a thing at full speed.",
 
   'voice.weapons.loaded-1': 'Tube one loaded.',
   'voice.weapons.loaded-2': 'Tube two loaded.',
