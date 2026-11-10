@@ -1,483 +1,332 @@
+// The rules engine on its own: no sockets, no database. Matches are made with a fixed seed and a
+// fixed start, then boats are placed by hand where a test needs them.
 const test = require('node:test');
 const assert = require('node:assert');
-const E = require('./engine');
-const { sectorOf } = require('./map');
+const engine = require('./engine');
+const ai = require('./ai');
+const { getMap, stepFrom, bearing, angleDiff, routeTo, cellName, headingFor } = require('./map');
+const { TUNING, HULL_MAX, TORPEDO, MAPS, BOARD } = require('./constants');
 
-// Helper: fresh turn-based game, optionally place a sub.
-function game(mode = 'turn-based') {
-  return E.initGameState(mode, false);
-}
-function place(state, team, x, y, patch = {}) {
-  Object.assign(state.submarines[team], { position: { x, y }, ...patch });
-}
-const has = (events, name) => events.some((e) => e.event === name);
-const find = (events, name) => events.find((e) => e.event === name);
+const SHELF = 'black-shelf';
+const fresh = (opts = {}) => engine.initMatch({ seed: 7, mapId: SHELF, startIndex: 0, ...opts });
+const run = (state, seconds, brains = null) => {
+  const out = [];
+  for (let i = 0; i < Math.round(seconds / 0.1); i++) out.push(...engine.tick(state, 0.1, brains));
+  return out;
+};
+const fxOf = (events, type) => events.filter((e) => e.event === 'fx' && e.payload.type === type);
+const place = (state, team, x, y, heading = 2) => Object.assign(state.subs[team], { x, y, heading, progress: 0 });
+// Full speed needs three power on the engines (a boat starts with 2/2/2).
+const fullPower = (state, team) => engine.setPower(state, team, { engines: 3, sonar: 2, tubes: 1 });
 
-// ---------------------------------------------------------------- movement
-test('legalMoves excludes island / edge / trail', () => {
-  const s = game();
-  // alpha starts at (1,1); (2,1) is an island so E is illegal.
-  assert.deepStrictEqual(E.legalMoves(s, 'alpha').sort(), ['N', 'S', 'W']);
-
-  place(s, 'alpha', 0, 0); // corner: N and W leave the board
-  assert.deepStrictEqual(E.legalMoves(s, 'alpha').sort(), ['E', 'S']);
-
-  place(s, 'alpha', 5, 5, { path: [{ x: 5, y: 4 }] }); // came from the north
-  assert.ok(!E.legalMoves(s, 'alpha').includes('N'));
-});
-
-test('applyMove rejects an illegal direction and does not move', () => {
-  const s = game();
-  const before = { ...s.submarines.alpha.position };
-  const r = E.applyMove(s, 'alpha', 'E'); // into the island at (2,1)
-  assert.strictEqual(r.ok, false);
-  assert.strictEqual(r.error.reason, 'island');
-  assert.deepStrictEqual(s.submarines.alpha.position, before);
-});
-
-test('applyMove commits a legal move, records trail, announces', () => {
-  const s = game();
-  const r = E.applyMove(s, 'alpha', 'S');
-  assert.ok(r.ok);
-  assert.deepStrictEqual(s.submarines.alpha.position, { x: 1, y: 2 });
-  assert.deepStrictEqual(s.submarines.alpha.path, [{ x: 1, y: 1 }]);
-  assert.ok(has(r.events, 'move-announced'));
-  const sound = find(r.events, 'play-move-sound');
-  assert.strictEqual(sound.team, 'bravo'); // only the enemy radio hears it
-  assert.strictEqual(s.submarines.alpha.awaitingConfirmation, true);
-});
-
-test('a trapped sub has no legal moves (forced-surface trigger)', () => {
-  const s = game();
-  place(s, 'alpha', 0, 0, { path: [{ x: 1, y: 0 }, { x: 0, y: 1 }] });
-  assert.deepStrictEqual(E.legalMoves(s, 'alpha'), []);
-});
-
-// ---------------------------------------------------------------- torpedo
-test('torpedo: direct hit is 2, adjacent is 1, and range/island are enforced', () => {
-  let s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, torpedo: 3 } });
-  place(s, 'bravo', 6, 5); // 1 cell away -> in blast ring, distance 1 (in range)
-  const r = E.fireTorpedo(s, 'alpha', { x: 6, y: 5 });
-  assert.ok(r.ok);
-  assert.strictEqual(s.submarines.bravo.health, 2); // 4 - 2 direct
-  assert.ok(has(r.events, 'torpedo-hit'));
-  assert.strictEqual(s.submarines.alpha.systems.torpedo, 0);
-
-  s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, torpedo: 3 } });
-  place(s, 'bravo', 7, 5); // Chebyshev 1 from target (6,5) -> 1 dmg
-  const r2 = E.fireTorpedo(s, 'alpha', { x: 6, y: 5 });
-  assert.ok(r2.ok);
-  assert.strictEqual(s.submarines.bravo.health, 3);
-});
-
-test('torpedo rejects out-of-range and island targets and uncharged fire', () => {
-  const s = game();
-  place(s, 'alpha', 1, 1, { systems: { ...s.submarines.alpha.systems, torpedo: 3 } });
-  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 14, y: 9 }).error.reason, 'out-of-range');
-  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 2, y: 1 }).error.reason, 'target-island');
-  const uncharged = game();
-  assert.strictEqual(E.fireTorpedo(uncharged, 'alpha', { x: 1, y: 2 }).error.reason, 'not-charged');
-});
-
-test('torpedo can damage the firing sub (self-splash)', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, torpedo: 3 } });
-  place(s, 'bravo', 0, 9);
-  const r = E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }); // alpha is Chebyshev 1 from blast
-  assert.ok(r.ok);
-  assert.strictEqual(s.submarines.alpha.health, 3);
-});
-
-// ---------------------------------------------------------------- mine
-test('mine: place adjacent, reject non-adjacent/island, detonate blasts', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, mine: 3 } });
-  assert.strictEqual(E.placeMine(s, 'alpha', { x: 8, y: 5 }).error.reason, 'not-adjacent');
-  const ok = E.placeMine(s, 'alpha', { x: 6, y: 5 });
-  assert.ok(ok.ok);
-  assert.deepStrictEqual(s.submarines.alpha.mines, [{ x: 6, y: 5 }]);
-  assert.strictEqual(s.submarines.alpha.systems.mine, 0);
-
-  place(s, 'bravo', 6, 5);
-  const det = E.detonateMine(s, 'alpha', { x: 6, y: 5 });
-  assert.ok(det.ok);
-  assert.strictEqual(s.submarines.bravo.health, 2);
-  assert.strictEqual(s.submarines.alpha.mines.length, 0);
-  assert.strictEqual(E.detonateMine(s, 'alpha', { x: 6, y: 5 }).error.reason, 'no-mine');
-});
-
-// ---------------------------------------------------------------- drone
-test('drone answers truthfully about a sector', () => {
-  const s = game();
-  place(s, 'alpha', 1, 1, { systems: { ...s.submarines.alpha.systems, drone: 4 } });
-  place(s, 'bravo', 0, 0); // sector 1
-  const yes = E.launchDrone(s, 'alpha', sectorOf(0, 0));
-  assert.strictEqual(find(yes.events, 'drone-result').payload.inSector, true);
-
-  place(s, 'alpha', 1, 1, { systems: { ...s.submarines.alpha.systems, drone: 4 } });
-  const no = E.launchDrone(s, 'alpha', 6);
-  assert.strictEqual(find(no.events, 'drone-result').payload.inSector, false);
-});
-
-// ---------------------------------------------------------------- sonar
-test('sonar requires exactly one true + one false, of different types', () => {
-  const s = game();
-  place(s, 'alpha', 1, 1, { systems: { ...s.submarines.alpha.systems, sonar: 3 } });
-  place(s, 'bravo', 3, 4); // row 4, col 3, sector 1
-  E.useSonar(s, 'alpha');
-  assert.ok(s.submarines.bravo.pendingSonar);
-
-  // two-true -> rejected
-  assert.strictEqual(
-    E.resolveSonar(s, 'bravo', [{ type: 'sector', value: 1 }, { type: 'col', value: 3 }]).error.reason,
-    'need-one-true-one-false',
-  );
-  // same-type -> rejected
-  assert.strictEqual(
-    E.resolveSonar(s, 'bravo', [{ type: 'row', value: 4 }, { type: 'row', value: 9 }]).error.reason,
-    'same-type',
-  );
-  // valid: true sector + false row
-  const good = E.resolveSonar(s, 'bravo', [{ type: 'sector', value: 1 }, { type: 'row', value: 9 }], { shuffle: false });
-  assert.ok(good.ok);
-  assert.strictEqual(find(good.events, 'sonar-result').team, 'alpha');
-  assert.strictEqual(s.submarines.bravo.pendingSonar, null);
-});
-
-test('sonar gets a unique id and resolveSonar guards on game-over', () => {
-  const s = game();
-  place(s, 'alpha', 1, 1, { systems: { ...s.submarines.alpha.systems, sonar: 3 } });
-  place(s, 'bravo', 3, 4);
-  E.useSonar(s, 'alpha');
-  assert.ok(typeof s.submarines.bravo.pendingSonar.id === 'number');
-  // resolveSonar answered event for the responder + result for the asker
-  const r = E.resolveSonar(s, 'bravo', [{ type: 'sector', value: 1 }, { type: 'row', value: 9 }], { shuffle: false });
-  assert.ok(has(r.events, 'sonar-answered'));
-  // once the game is over, a stale response is rejected
-  s.gameOver = true;
-  s.submarines.bravo.pendingSonar = { askingTeam: 'alpha', id: 99 };
-  assert.strictEqual(E.resolveSonar(s, 'bravo', [{ type: 'sector', value: 1 }, { type: 'row', value: 9 }]).error.reason, 'game-over');
-});
-
-test('autoSonarFacts always yields a valid pair', () => {
-  const s = game();
-  place(s, 'bravo', 7, 3);
-  s.submarines.bravo.pendingSonar = { askingTeam: 'alpha' };
-  const facts = E.autoSonarFacts(s.submarines.bravo);
-  const r = E.resolveSonar(s, 'bravo', facts, { shuffle: false });
-  assert.ok(r.ok);
-});
-
-// ---------------------------------------------------------------- silence
-test('silence moves silently, respects water/trail, allows distance 0', () => {
-  let s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, silence: 6 } });
-  const r = E.applySilence(s, 'alpha', 'E', 3);
-  assert.ok(r.ok);
-  assert.deepStrictEqual(s.submarines.alpha.position, { x: 8, y: 5 });
-  assert.ok(!has(r.events, 'move-announced')); // silent
-  assert.ok(has(r.events, 'silence-used'));
-  assert.strictEqual(s.submarines.alpha.systems.silence, 0);
-
-  s = game();
-  place(s, 'alpha', 9, 4, { systems: { ...s.submarines.alpha.systems, silence: 6 } });
-  assert.strictEqual(E.applySilence(s, 'alpha', 'E', 1).error.reason, 'blocked'); // (10,4) island
-
-  s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, silence: 6 }, path: [{ x: 6, y: 5 }] });
-  assert.strictEqual(E.applySilence(s, 'alpha', 'E', 1).error.reason, 'trail');
-
-  s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, silence: 6 } });
-  const zero = E.applySilence(s, 'alpha', 'N', 0);
-  assert.ok(zero.ok);
-  assert.deepStrictEqual(s.submarines.alpha.position, { x: 5, y: 5 });
-});
-
-// ---------------------------------------------------------------- engineer
-test('engineer: completing a circuit auto-repairs it', () => {
-  const s = game();
-  ['N', 'S', 'E'].forEach((d) => E.markBreakdown(s, 'alpha', d)); // n1, s1, e1 (circuit A)
-  const r = E.markBreakdown(s, 'alpha', 'W'); // w1 completes circuit A
-  const dm = find(r.events, 'damage-marked');
-  assert.deepStrictEqual(dm.payload.completedCircuits, ['A']);
-  assert.deepStrictEqual(s.submarines.alpha.damage, []); // cleared
-});
-
-test('engineer: a full direction causes 1 hull damage and resets', () => {
-  const s = game();
-  ['N', 'N', 'N', 'N'].forEach(() => E.markBreakdown(s, 'alpha', 'N')); // n1..n4
-  assert.strictEqual(s.submarines.alpha.damage.length, 4);
-  const r = E.markBreakdown(s, 'alpha', 'N'); // no slot free in N
-  assert.strictEqual(s.submarines.alpha.health, 3);
-  assert.deepStrictEqual(s.submarines.alpha.damage, []);
-  assert.ok(has(r.events, 'hull-damage'));
-});
-
-// ---------------------------------------------------------------- death
-test('mutual kill: the acting team loses the tie', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { health: 2, mines: [{ x: 5, y: 5 }] });
-  place(s, 'bravo', 5, 5, { health: 2 });
-  const r = E.detonateMine(s, 'alpha', { x: 5, y: 5 });
-  assert.ok(r.ok);
-  assert.strictEqual(s.gameOver, true);
-  assert.strictEqual(s.winner, 'bravo'); // alpha detonated -> loses tie
-  assert.strictEqual(find(r.events, 'game-over').payload.winner, 'bravo');
-});
-
-// ---------------------------------------------------------------- charge pacing
-test('turn-based charge: one system per move', () => {
-  const s = game();
-  E.applyMove(s, 'alpha', 'S'); // opens the confirm window
-  assert.ok(E.chargeSystem(s, 'alpha', 'torpedo').ok);
-  assert.strictEqual(E.chargeSystem(s, 'alpha', 'mine').error.reason, 'already-charged');
-});
-
-test('live charge: gated by move tokens', () => {
-  const s = game('live');
-  assert.strictEqual(E.chargeSystem(s, 'alpha', 'torpedo').error.reason, 'no-tokens');
-  E.applyMove(s, 'alpha', 'S', { now: 1000 });
-  assert.strictEqual(s.submarines.alpha.chargeTokens, 1);
-  assert.ok(E.chargeSystem(s, 'alpha', 'torpedo').ok);
-  assert.strictEqual(s.submarines.alpha.chargeTokens, 0);
-  assert.strictEqual(E.chargeSystem(s, 'alpha', 'torpedo').error.reason, 'no-tokens');
-});
-
-test('live move respects cooldown', () => {
-  const s = game('live');
-  E.applyMove(s, 'alpha', 'S', { now: 1000 });
-  assert.strictEqual(E.applyMove(s, 'alpha', 'S', { now: 1500 }).error.reason, 'cooldown');
-  assert.ok(E.applyMove(s, 'alpha', 'W', { now: 3000 }).ok);
-});
-
-// ---------------------------------------------------------------- surface
-test('surface clears trail + breakdowns and announces the sector', () => {
-  const s = game();
-  place(s, 'alpha', 7, 3, { path: [{ x: 7, y: 2 }], damage: [{ slotId: 'n1' }] });
-  const r = E.surface(s, 'alpha', { now: 1000 });
-  assert.ok(r.ok);
-  assert.deepStrictEqual(s.submarines.alpha.path, []);
-  assert.deepStrictEqual(s.submarines.alpha.damage, []);
-  assert.strictEqual(s.submarines.alpha.surfaced, true);
-  assert.strictEqual(find(r.events, 'surface-announced').payload.sector, sectorOf(7, 3));
-  assert.strictEqual(s.submarines.alpha.health, 4); // hull NOT repaired (faithful)
-});
-
-// ---------------------------------------------------------------- visibility
-// ---------------------------------------------------------------- full match
-test('full turn-based sequence: charge over 3 moves, confirm, then sink the enemy', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5);
-  place(s, 'bravo', 5, 4, { health: 2 });
-
-  const doTurn = (dir) => {
-    assert.ok(E.applyMove(s, 'alpha', dir).ok, `move ${dir}`);
-    assert.ok(E.chargeSystem(s, 'alpha', 'torpedo').ok);
-    E.confirmRole(s, 'alpha', 'first-mate');
-    E.confirmRole(s, 'alpha', 'engineer');
-    const done = E.confirmRole(s, 'alpha', 'radio-operator');
-    assert.ok(has(done.events, 'turn-complete'));
-    assert.strictEqual(s.submarines.alpha.awaitingConfirmation, false);
-  };
-
-  doTurn('N'); // (5,5)->(5,4)? bravo is there but overlap allowed... wait alpha starts 5,5
-  // alpha path: after N -> (5,4). Continue north to stay legal (no trail re-cross).
-  doTurn('N'); // (5,4)->(5,3)
-  doTurn('N'); // (5,3)->(5,2)
-  assert.strictEqual(s.submarines.alpha.systems.torpedo, 3);
-
-  const fire = E.fireTorpedo(s, 'alpha', { x: 5, y: 4 }); // direct hit on bravo (2 dmg)
-  assert.ok(fire.ok);
-  assert.strictEqual(s.gameOver, true);
-  assert.strictEqual(s.winner, 'alpha');
-});
-
-test('surface clears the confirm window and charge tokens', () => {
-  const s = game('live');
-  E.applyMove(s, 'alpha', 'S', { now: 1000 });
-  assert.strictEqual(s.submarines.alpha.chargeTokens, 1);
-  E.surface(s, 'alpha', { now: 2000 });
-  assert.strictEqual(s.submarines.alpha.chargeTokens, 0);
-  assert.deepStrictEqual(s.submarines.alpha.breakdownQueue, []);
-});
-
-test('enemy view hides position/path/systems/mines but shows health + surface', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { mines: [{ x: 6, y: 5 }], surfaced: true, surfacedSector: 3 });
-  const view = E.getTeamVisibleState(s, 'bravo');
-  assert.strictEqual(view.submarines.alpha.position, null);
-  assert.deepStrictEqual(view.submarines.alpha.systems, {});
-  assert.strictEqual(view.submarines.alpha.mines, undefined);
-  assert.strictEqual(view.submarines.alpha.surfacedSector, 3);
-  assert.ok(Array.isArray(view.legalMoves));
-});
-
-// ---------------------------------------------------------------- input from the client
-test('only the crew stations confirm, so junk never piles up in confirmedRoles', () => {
-  const s = game('live'); // live mode never clears confirmedRoles
-  for (const role of ['captain', 'junk-1', 'junk-2', { big: 'x'.repeat(100) }, undefined]) {
-    const r = E.confirmRole(s, 'alpha', role);
-    assert.strictEqual(r.ok, false);
-    assert.strictEqual(r.error.reason, 'bad-role');
-  }
-  assert.deepStrictEqual(s.submarines.alpha.confirmedRoles, []);
-  assert.ok(E.confirmRole(s, 'alpha', 'engineer').ok);
-});
-
-test('a sonar reply needs two real facts, and only their type + value reach the asker', () => {
-  const s = game();
-  place(s, 'alpha', 1, 1, { systems: { ...s.submarines.alpha.systems, sonar: 3 } });
-  place(s, 'bravo', 3, 4); // row 4, col 3, sector 1
-  E.useSonar(s, 'alpha');
-  const bad = [
-    [{ type: 'sector', value: 1 }, { type: 'mood', value: 2 }], // one true + one meaningless
-    [{ type: 'sector', value: 1 }, { type: 'row', value: '9' }],
-    [{ type: 'sector', value: 1 }, { type: 'row', value: 9.5 }],
-    [{ type: 'sector', value: 1 }, 'row 9'],
-    [{ type: 'sector', value: 1 }, null],
-  ];
-  for (const facts of bad) {
-    assert.strictEqual(E.resolveSonar(s, 'bravo', facts).error?.reason, 'bad-fact', JSON.stringify(facts));
-  }
-  assert.ok(s.submarines.bravo.pendingSonar, 'still owed after the bad replies');
-
-  const r = E.resolveSonar(s, 'bravo', [{ type: 'sector', value: 1, note: 'x'.repeat(500) }, { type: 'row', value: 9 }], { shuffle: false });
-  assert.ok(r.ok);
-  assert.deepStrictEqual(find(r.events, 'sonar-result').payload.facts, [{ type: 'sector', value: 1 }, { type: 'row', value: 9 }]);
-});
-
-test('weapons aimed between cells are refused instead of throwing', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, torpedo: 3, mine: 3 } });
-  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6.5, y: 5.5 }).error.reason, 'target-island');
-  assert.strictEqual(E.placeMine(s, 'alpha', { x: 5.5, y: 5 }).error.reason, 'target-island');
-  assert.strictEqual(s.submarines.alpha.systems.torpedo, 3, 'nothing spent');
-  assert.strictEqual(s.submarines.alpha.systems.mine, 3, 'nothing spent');
-});
-
-test('blasts announce the cell and nothing else the client sent', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { systems: { ...s.submarines.alpha.systems, torpedo: 3 }, mines: [{ x: 5, y: 6 }] });
-  place(s, 'bravo', 0, 9);
-  const shot = E.fireTorpedo(s, 'alpha', { x: 6, y: 5, junk: 'x'.repeat(500) });
-  assert.deepStrictEqual(find(shot.events, 'blast-resolved').payload.origin, { x: 6, y: 5 });
-  assert.deepStrictEqual(find(shot.events, 'torpedo-miss').payload.target, { x: 6, y: 5 });
-  const boom = E.detonateMine(s, 'alpha', { x: 5, y: 6, junk: 'x'.repeat(500) });
-  assert.deepStrictEqual(find(boom.events, 'mine-exploded').payload.origin, { x: 5, y: 6 });
-});
-
-// ---------------------------------------------------------------- broken systems (server enforces what the client greys out)
-const fullCharge = (s, team) => Object.assign(s.submarines[team].systems, { torpedo: 3, mine: 3, drone: 4, sonar: 3, silence: 6 });
-
-test('a system with a marked breakdown cannot be used, whatever the client sends', () => {
-  // [system, a slot wired to it, call under test, action name]
-  const cases = [
-    ['torpedo', 's2', (s) => E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }), 'fire-torpedo'],
-    ['mine', 'n2', (s) => E.placeMine(s, 'alpha', { x: 6, y: 5 }), 'place-mine'],
-    ['drone', 'w1', (s) => E.launchDrone(s, 'alpha', 1), 'launch-drone'],
-    ['sonar', 'e1', (s) => E.useSonar(s, 'alpha'), 'use-sonar'],
-    ['silence', 'w3', (s) => E.applySilence(s, 'alpha', 'E', 2), 'use-silence'],
-  ];
-  for (const [system, slotId, call, action] of cases) {
-    const s = game();
-    place(s, 'alpha', 5, 5, { damage: [{ slotId }] });
-    place(s, 'bravo', 9, 9);
-    fullCharge(s, 'alpha');
-    const charged = s.submarines.alpha.systems[system];
-    const r = call(s);
-    assert.strictEqual(r.ok, false, `${system} should be refused`);
-    assert.strictEqual(r.error.action, action);
-    assert.strictEqual(r.error.reason, 'system-down', system);
-    assert.deepStrictEqual(r.events, []);
-    // Nothing was spent or moved.
-    assert.strictEqual(s.submarines.alpha.systems[system], charged, `${system} charge kept`);
-    assert.deepStrictEqual(s.submarines.alpha.position, { x: 5, y: 5 });
-    assert.deepStrictEqual(s.submarines.alpha.mines, []);
-    assert.strictEqual(s.submarines.bravo.pendingSonar, null);
-    assert.strictEqual(s.submarines.bravo.health, 4);
+test('every chart is 16 by 12, its starts and whales are open water, and every water cell is reachable', () => {
+  for (const def of MAPS) {
+    assert.equal(def.rows.length, BOARD.height, def.id);
+    for (const row of def.rows) assert.equal(row.length, BOARD.width, def.id);
+    const map = getMap(def.id);
+    for (const pair of def.starts) for (const s of pair) assert.ok(map.isWater(s.x, s.y), `${def.id} start ${cellName(s.x, s.y)}`);
+    for (const w of def.whales) assert.ok(map.isWater(w.x, w.y));
+    const from = def.starts[0][0];
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        if (map.isWater(x, y) && !(x === from.x && y === from.y)) assert.ok(routeTo(map, from, { x, y }), `${def.id} ${cellName(x, y)} cut off`);
+      }
+    }
   }
 });
 
-test('any one wired slot takes the system down, and other systems keep working', () => {
-  // e3 is a torpedo slot (east), n2 a mine slot: torpedo is down, drone/sonar/silence/mine are not.
-  const s = game();
-  place(s, 'alpha', 5, 5, { damage: [{ slotId: 'e3' }] });
-  place(s, 'bravo', 9, 9);
-  fullCharge(s, 'alpha');
-  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).error.reason, 'system-down');
-  assert.ok(E.launchDrone(s, 'alpha', 1).ok);
-  assert.ok(E.placeMine(s, 'alpha', { x: 6, y: 5 }).ok);
-  assert.ok(E.useSonar(s, 'alpha').ok);
-  assert.ok(E.applySilence(s, 'alpha', 'N', 1).ok);
+test('bearings run clockwise from north, and a diagonal step may not cut a rock corner', () => {
+  assert.equal(bearing({ x: 5, y: 5 }, { x: 5, y: 1 }), 0);
+  assert.equal(bearing({ x: 5, y: 5 }, { x: 9, y: 5 }), 90);
+  assert.equal(bearing({ x: 5, y: 5 }, { x: 5, y: 9 }), 180);
+  assert.equal(angleDiff(350, 10), 20);
+  assert.equal(headingFor(44), 1);
+  const map = getMap(SHELF);
+  // (1,1) -> NE (2,0): (2,1) is rock, so the diagonal is refused; (1,0) north is fine
+  assert.equal(stepFrom(map, { x: 1, y: 1 }, 1).ok, false);
+  assert.equal(stepFrom(map, { x: 1, y: 1 }, 0).ok, true);
+  assert.equal(cellName(0, 0), 'A1');
+  assert.equal(cellName(15, 11), 'P12');
 });
 
-test('an uncharged system that is also down reports the breakdown, a healthy one still reports not-charged', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { damage: [{ slotId: 'n1' }] }); // torpedo slot
-  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).error.reason, 'system-down');
-  assert.strictEqual(E.launchDrone(s, 'alpha', 1).error.reason, 'not-charged');
+test('a match starts with both boats whole, stopped, apart, and every empty station on the auto-crew', () => {
+  const s = fresh({ crew: { alpha: { helm: 'human' } } });
+  assert.equal(s.subs.alpha.hull, HULL_MAX);
+  assert.equal(s.subs.alpha.ordered, 0);
+  assert.ok(Math.hypot(s.subs.alpha.x - s.subs.bravo.x, s.subs.alpha.y - s.subs.bravo.y) > 10);
+  assert.deepEqual(s.crew.alpha, { helm: 'human', listener: 'auto', weapons: 'auto', chief: 'auto' });
+  assert.deepEqual(s.crew.bravo, { helm: 'auto', listener: 'auto', weapons: 'auto', chief: 'auto' });
+  assert.equal(engine.isMatch(s), true);
+  assert.equal(engine.isMatch({ submarines: { alpha: {}, bravo: {} } }), false, 'an old-rules match is not one');
 });
 
-test('a repaired system fires again (circuit clears the breakdown)', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { damage: [{ slotId: 'n1' }, { slotId: 's1' }, { slotId: 'e1' }] });
-  fullCharge(s, 'alpha');
-  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).error.reason, 'system-down');
-  // The fourth circuit A slot completes the circuit and clears all four, torpedo's n1 included.
-  assert.ok(E.markBreakdown(s, 'alpha', 'W', 'w1', 'alpha').ok);
-  assert.deepStrictEqual(s.submarines.alpha.damage, []);
-  place(s, 'bravo', 9, 9);
-  assert.ok(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).ok);
+test('the helm sets a heading and a speed; the boat moves a cell per speed time and makes noise the enemy hears', () => {
+  const s = fresh();
+  place(s, 'alpha', 3, 6, 2); // facing east, open water ahead
+  place(s, 'bravo', 9, 6, 6);
+  engine.setSpeed(s, 'alpha', 3);
+  assert.equal(engine.effectiveSpeed(s.subs.alpha), 2, 'two power on the engines: half at most');
+  fullPower(s, 'alpha');
+  const ev = run(s, 1.2);
+  assert.equal(s.subs.alpha.x, 4, 'one cell at full speed in 1.1 s');
+  const heard = fxOf(ev, 'contact').filter((e) => e.team === 'bravo');
+  assert.equal(heard.length, 1);
+  const c = heard[0].payload.contact;
+  assert.equal(c.kind, 'hull');
+  assert.ok(Math.abs(angleDiff(c.bearing, bearing({ x: 9, y: 6 }, { x: 4, y: 6 }))) <= c.width, 'the truth is inside the wedge');
+  assert.equal(c.ox, 9);
+  assert.equal(engine.turn(s, 'alpha', 1).ok, true);
+  assert.equal(s.subs.alpha.heading, 3);
+  assert.equal(engine.setSpeed(s, 'alpha', 5).ok, false);
+  assert.equal(engine.setHeading(s, 'alpha', 8).ok, false);
 });
 
-test('surfacing clears breakdowns, so a surfaced sub is refused for being surfaced', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { damage: [{ slotId: 'n1' }] });
-  fullCharge(s, 'alpha');
-  E.surface(s, 'alpha');
-  assert.deepStrictEqual(s.submarines.alpha.damage, []);
-  assert.strictEqual(E.fireTorpedo(s, 'alpha', { x: 6, y: 5 }).error.reason, 'surfaced');
+test('speed is held to the engines power: with one power the boat only goes slow', () => {
+  const s = fresh();
+  place(s, 'alpha', 3, 6, 2);
+  engine.setPower(s, 'alpha', { engines: 1, sonar: 2, tubes: 2 });
+  engine.setSpeed(s, 'alpha', 3);
+  assert.equal(engine.effectiveSpeed(s.subs.alpha), 1);
+  run(s, 1.5);
+  assert.equal(s.subs.alpha.x, 3, 'slow takes 2.6 s a cell');
+  run(s, 1.2);
+  assert.equal(s.subs.alpha.x, 4);
 });
 
-test('mine detonation is refused while surfaced and the mine stays laid', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { mines: [{ x: 6, y: 5 }] });
-  place(s, 'bravo', 6, 5);
-  E.surface(s, 'alpha');
-  const r = E.detonateMine(s, 'alpha', { x: 6, y: 5 });
-  assert.strictEqual(r.ok, false);
-  assert.strictEqual(r.error.reason, 'surfaced');
-  assert.deepStrictEqual(s.submarines.alpha.mines, [{ x: 6, y: 5 }]);
-  assert.strictEqual(s.submarines.bravo.health, 4);
-
-  E.resurface(s, 'alpha');
-  assert.ok(E.detonateMine(s, 'alpha', { x: 6, y: 5 }).ok);
-  assert.strictEqual(s.submarines.bravo.health, 2);
+test('a slow boat is quieter: heard from less far, and a vent field hides a slow boat altogether', () => {
+  const s = fresh();
+  place(s, 'bravo', 15, 6);
+  place(s, 'alpha', 6, 5, 2); // 9 cells off
+  engine.setSpeed(s, 'alpha', 1);
+  let ev = run(s, 2.7);
+  assert.equal(s.subs.alpha.x, 7);
+  assert.equal(fxOf(ev, 'contact').length, 0, 'slow at 8 cells is not heard');
+  fullPower(s, 'alpha');
+  engine.setSpeed(s, 'alpha', 3);
+  ev = run(s, 1.2);
+  assert.equal(fxOf(ev, 'contact').length, 1, 'full speed is');
+  // into the vent field at B5/C5 (x 1-2, y 4-5), slow: nothing heard even close by
+  const t = fresh();
+  place(t, 'alpha', 3, 5, 6);
+  place(t, 'bravo', 5, 5);
+  engine.setSpeed(t, 'alpha', 1);
+  ev = run(t, 2.7);
+  assert.equal(t.subs.alpha.x, 2);
+  assert.equal(fxOf(ev, 'contact').length, 0);
 });
 
-test('a broken mine system does not stop detonating a mine already laid (the client allows it)', () => {
-  const s = game();
-  place(s, 'alpha', 5, 5, { mines: [{ x: 6, y: 5 }], damage: [{ slotId: 'n2' }] }); // n2 is a mine slot
-  place(s, 'bravo', 6, 5);
-  const r = E.detonateMine(s, 'alpha', { x: 6, y: 5 });
-  assert.ok(r.ok);
-  assert.strictEqual(s.submarines.bravo.health, 2);
+test('rocks: the helm is warned, a slow bump only stops the boat, a fast one costs hull and a fault', () => {
+  const s = fresh();
+  place(s, 'alpha', 1, 2, 2); // east of B3 is the rock at C3
+  engine.setSpeed(s, 'alpha', 1);
+  let ev = run(s, 2.7);
+  assert.equal(fxOf(ev, 'rocks-ahead').length, 1);
+  assert.equal(fxOf(ev, 'collision')[0].payload.damage, 0);
+  assert.equal(s.subs.alpha.ordered, 0);
+  assert.equal(s.subs.alpha.hull, HULL_MAX);
+  fullPower(s, 'alpha');
+  engine.setSpeed(s, 'alpha', 3);
+  ev = run(s, 1.2);
+  assert.equal(fxOf(ev, 'collision')[0].payload.damage, 1);
+  assert.equal(s.subs.alpha.hull, HULL_MAX - 1);
+  assert.equal(s.subs.alpha.faults.length, 1);
+  assert.equal(fxOf(ev, 'hit')[0].payload.cause, 'rock');
 });
 
-// ---------------------------------------------------------------- restored matches
-test('a match read back from storage never reuses a restored sonar id', () => {
-  const s = game();
-  s.submarines.bravo.pendingSonar = { askingTeam: 'alpha', id: 500 }; // as stored before a restart
-  assert.strictEqual(E.resumeState(s), s, 'the same state comes back');
-  fullCharge(s, 'bravo');
-  assert.ok(E.useSonar(s, 'bravo').ok);
-  assert.ok(s.submarines.alpha.pendingSonar.id > 500, 'a ping made now gets a newer id');
+test('power: each system 0-4, at most 9 in all; overdrive heats the reactor to a scram, venting cools it', () => {
+  const s = fresh();
+  assert.equal(engine.setPower(s, 'alpha', { engines: 5, sonar: 0, tubes: 0 }).ok, false);
+  assert.equal(engine.setPower(s, 'alpha', { engines: 4, sonar: 4, tubes: 4 }).ok, false);
+  assert.equal(engine.setPower(s, 'alpha', { engines: 1.5, sonar: 2, tubes: 2 }).ok, false);
+  assert.equal(engine.setPower(s, 'alpha', { engines: 3, sonar: 3, tubes: 3 }).ok, true);
+  let ev = run(s, 4);
+  assert.ok(s.subs.alpha.heat > 70 && s.subs.alpha.heat < 100);
+  assert.equal(fxOf(ev, 'heat-warning').length, 1);
+  assert.equal(engine.vent(s, 'alpha').ok, true);
+  assert.ok(s.subs.alpha.heat < 45);
+  assert.equal(engine.vent(s, 'alpha').ok, false, 'one vent, then a cooldown');
+  ev = run(s, 6);
+  assert.equal(fxOf(ev, 'scram').length, 1);
+  assert.deepEqual(engine.effectivePower(s.subs.alpha), { engines: 0, sonar: 0, tubes: 0 });
+  ev = run(s, TUNING.SCRAM_SECONDS + 0.2);
+  assert.equal(fxOf(ev, 'power-up').length, 1);
 });
 
-test('resumeState accepts a lobby setup with no boats', () => {
-  const setup = { automatedRoles: { alpha: ['engineer'] }, systemPriority: {} };
-  assert.strictEqual(E.resumeState(setup), setup);
+test('the torpedo room loads a tube by power, fires at a cell in range, and the blast hurts 2 on the cell and 1 beside it', () => {
+  const s = fresh();
+  place(s, 'alpha', 2, 11); // the bottom row is open water all the way
+  place(s, 'bravo', 8, 11);
+  assert.equal(engine.fire(s, 'alpha', 0, { x: 8, y: 11 }).ok, false, 'not loaded');
+  engine.setPower(s, 'alpha', { engines: 0, sonar: 2, tubes: 4 });
+  engine.loadTube(s, 'alpha', 0);
+  assert.equal(engine.loadTube(s, 'alpha', 0).ok, false, 'already loading');
+  let ev = run(s, TORPEDO.loadSecondsAtOnePower / 4 + 0.2);
+  assert.equal(fxOf(ev, 'tube-loaded').length, 1);
+  assert.equal(engine.fire(s, 'alpha', 0, { x: 2, y: 11 }).ok, false, 'not our own cell');
+  assert.equal(engine.fire(s, 'alpha', 0, { x: 15, y: 0 }).ok, false, 'out of range');
+  const shot = engine.fire(s, 'alpha', 0, { x: 8, y: 11 });
+  assert.equal(shot.ok, true);
+  assert.equal(fxOf(shot.events, 'contact')[0].payload.contact.kind, 'launch', 'the enemy hears the launch');
+  ev = run(s, 3.5);
+  assert.equal(fxOf(ev, 'blast').length, 1);
+  assert.equal(s.subs.bravo.hull, HULL_MAX - 2);
+  assert.equal(s.subs.bravo.faults.length, 2);
+  assert.ok(fxOf(ev, 'contact').some((e) => e.team === 'bravo' && e.payload.contact.kind === 'torpedo'), 'a running torpedo is heard');
+});
+
+test('a running torpedo can be steered onto a new cell, blows on rock, and is spent after its run', () => {
+  const s = fresh();
+  place(s, 'alpha', 3, 6);
+  place(s, 'bravo', 14, 11);
+  s.subs.alpha.tubes[0] = { state: 'ready', progress: 1 };
+  s.subs.alpha.tubes[1] = { state: 'ready', progress: 1 };
+  engine.fire(s, 'alpha', 0, { x: 3, y: 0 });
+  const id = s.torpedoes[0].id;
+  assert.equal(engine.guide(s, 'bravo', id, { x: 6, y: 6 }).ok, false, 'not theirs to steer');
+  assert.equal(engine.guide(s, 'alpha', id, { x: 6, y: 6 }).ok, true);
+  // straight at the rock at G7 (6,6)
+  let ev = run(s, 2);
+  assert.equal(fxOf(ev, 'blast').length, 1);
+  assert.deepEqual({ x: fxOf(ev, 'blast')[0].payload.x, y: fxOf(ev, 'blast')[0].payload.y }, { x: 6, y: 6 });
+  // an endless chase: steered back and forth each tick, it is spent after its run
+  engine.fire(s, 'alpha', 1, { x: 3, y: 11 });
+  place(s, 'alpha', 12, 11); // out of its way
+  const tp = s.torpedoes[0];
+  ev = [];
+  for (let i = 0; i < 80 && s.torpedoes.length; i++) {
+    tp.tx = 3; tp.ty = i % 2 ? 11 : 0;
+    ev.push(...engine.tick(s, 0.1));
+  }
+  assert.equal(fxOf(ev, 'torpedo-spent').length, 1);
+  assert.equal(fxOf(ev, 'blast').length, 0);
+  assert.equal(s.torpedoes.length, 0);
+});
+
+test('a ping finds what is within reach and tells the enemy exactly where we are', () => {
+  const s = fresh();
+  place(s, 'alpha', 4, 6);
+  place(s, 'bravo', 8, 6);
+  assert.equal(engine.ping(s, 'alpha').ok, false, 'not charged');
+  run(s, 21);
+  const r = engine.ping(s, 'alpha');
+  assert.equal(r.ok, true);
+  const result = fxOf(r.events, 'ping-result')[0].payload.ping;
+  assert.ok(result.found.some((f) => f.kind === 'boat' && f.x === 8 && f.y === 6));
+  const told = fxOf(r.events, 'contact').find((e) => e.team === 'bravo').payload.contact;
+  assert.deepEqual({ kind: told.kind, exact: told.exact, x: told.x, y: told.y }, { kind: 'ping', exact: true, x: 4, y: 6 });
+  assert.equal(fxOf(r.events, 'pinged')[0].team, 'bravo');
+  assert.equal(s.subs.alpha.pingCharge, 0);
+});
+
+test('a decoy sounds like a boat at full speed, then dies away', () => {
+  const s = fresh();
+  place(s, 'alpha', 4, 6);
+  place(s, 'bravo', 12, 6);
+  assert.equal(engine.launchDecoy(s, 'alpha', 4).ok, true);
+  assert.equal(engine.launchDecoy(s, 'alpha', 4).ok, false, 'recharging');
+  const ev = run(s, 12);
+  const fake = fxOf(ev, 'contact').filter((e) => e.team === 'bravo' && e.payload.contact.kind === 'hull');
+  assert.ok(fake.length >= 5);
+  assert.equal(s.decoys.length, 0);
+});
+
+test('faults: a hit breaks things; the engine room repairs one at a time; a flood left alone costs hull', () => {
+  const s = fresh();
+  const ev = [];
+  engine.addFaults(s, 'alpha', 4, ev);
+  assert.deepEqual(s.subs.alpha.faults.map((f) => f.kind).sort(), ['fire', 'flood', 'rudder', 'sonar']);
+  assert.equal(engine.setHeading(s, 'alpha', 4).ok, false, 'the rudder is jammed');
+  assert.equal(engine.effectivePower(s.subs.alpha).tubes, 0, 'flooding stops the tubes');
+  assert.equal(engine.ping(s, 'alpha').ok, false, 'a damaged dome cannot ping');
+  const rudder = s.subs.alpha.faults.find((f) => f.kind === 'rudder');
+  assert.equal(engine.startRepair(s, 'alpha', rudder.id).ok, true);
+  let out = run(s, 4.2);
+  assert.equal(fxOf(out, 'repaired')[0].payload.kind, 'rudder');
+  assert.equal(engine.setHeading(s, 'alpha', 4).ok, true);
+  out = run(s, TUNING.FLOOD_DAMAGE_SECONDS);
+  assert.equal(fxOf(out, 'hit').filter((e) => e.payload.cause === 'flood').length, 1);
+  assert.equal(s.subs.alpha.hull, HULL_MAX - 1);
+  assert.equal(engine.startRepair(s, 'alpha', 999).ok, false);
+});
+
+test('the last hull ends the match for the other boat, once; at the end of the clock the hull count decides', () => {
+  const s = fresh();
+  s.subs.bravo.hull = 1;
+  place(s, 'bravo', 9, 6);
+  const ev = [];
+  engine.blast(s, { x: 9, y: 7 }, 'alpha', ev);
+  engine.tick(s, 0.1).forEach((e) => ev.push(e));
+  assert.equal(s.over.winner, 'alpha');
+  assert.equal(ev.filter((e) => e.event === 'game-over').length, 1);
+  assert.deepEqual(engine.tick(s, 0.1), [], 'nothing moves after the end');
+  assert.equal(engine.setSpeed(s, 'alpha', 1).ok, false);
+
+  const c = fresh();
+  c.t = TUNING.MATCH_SECONDS - 125;
+  let out = run(c, 10);
+  assert.equal(fxOf(out, 'clock')[0].payload.left, 120);
+  c.subs.alpha.hull = 3;
+  out = run(c, 120);
+  assert.deepEqual({ winner: c.over.winner, how: c.over.how }, { winner: 'bravo', how: 'clock' });
+});
+
+test("a team's view has its own boat in full and nothing of the enemy's but its hull", () => {
+  const s = fresh();
+  place(s, 'alpha', 2, 11);
+  s.subs.alpha.tubes[0] = { state: 'ready', progress: 1 };
+  assert.equal(engine.fire(s, 'alpha', 0, { x: 7, y: 11 }).ok, true);
+  engine.setMarker(s, 'bravo', { x: 2, y: 2 });
+  const view = engine.teamView(s, 'bravo', { contacts: true });
+  assert.equal(view.boat.x, s.subs.bravo.x);
+  assert.equal(view.boat.marker.x, 2);
+  assert.deepEqual(view.enemy, { hull: HULL_MAX });
+  assert.equal(view.torpedoes.length, 0, "the other boat's torpedo is not on our chart");
+  assert.equal(engine.teamView(s, 'alpha').torpedoes.length, 1);
+  assert.equal('contacts' in engine.teamView(s, 'alpha'), false, 'contacts only on a full view');
+  for (const k of ['whales', 'ai', 'subs', 'rng']) assert.equal(k in view, false, `no ${k} in a view`);
+});
+
+test('crew calls reach the team, wait a moment between, and the auto chief answers a call for power', () => {
+  const s = fresh();
+  s.ai.alpha = ai.newBrain(s, 'alpha');
+  const r = engine.call(s, 'alpha', 'helm', 'power-engines');
+  assert.equal(r.ok, true);
+  assert.equal(fxOf(r.events, 'call')[0].team, 'alpha');
+  assert.equal(engine.call(s, 'alpha', 'helm', 'evade').ok, false, 'too soon');
+  assert.equal(engine.call(s, 'alpha', 'listener', 'nonsense').ok, false);
+  run(s, 1, ai);
+  assert.equal(s.subs.alpha.power.engines, 4);
+});
+
+test('the auto-crew only uses what its boat heard: its belief does not move without contacts', () => {
+  const s = fresh();
+  const brain = ai.newBrain(s, 'alpha');
+  s.ai.alpha = brain;
+  place(s, 'bravo', 12, 3);
+  ai.observe(s, 'alpha', brain);
+  const before = brain.best;
+  s.subs.bravo.x = 2; // move the enemy by hand: nothing heard
+  s.t += 0.2;
+  ai.observe(s, 'alpha', brain);
+  assert.deepEqual(brain.best, before);
+});
+
+test('two auto crews fight it out to a result inside the clock, on every seed tried', () => {
+  for (const seed of [1, 2, 3, 4, 5, 6]) {
+    const s = engine.initMatch({ seed });
+    let fired = 0;
+    while (!s.over) fired += fxOf(engine.tick(s, 0.1, ai), 'fired').length;
+    assert.ok(s.over.t <= TUNING.MATCH_SECONDS + 0.2, `seed ${seed}`);
+    assert.ok(fired > 0, `seed ${seed}: somebody shot`);
+    assert.ok(engine.isMatch(JSON.parse(JSON.stringify(s))), 'a match survives JSON (the database)');
+  }
+});
+
+test('a stored match carries on the same: JSON in, the same ticks out', () => {
+  const a = engine.initMatch({ seed: 11 });
+  run(a, 30, ai);
+  const b = JSON.parse(JSON.stringify(a));
+  run(a, 20, ai);
+  run(b, 20, ai);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.subs)), JSON.parse(JSON.stringify(a.subs)));
 });

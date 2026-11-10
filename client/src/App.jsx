@@ -13,6 +13,23 @@ import { auth } from './services/api'
 import { disconnectSocket } from './services/socket'
 import { HOLD_KEY, returnPath, startWaypoint } from './lib/signIn'
 import { logoutAllUrl } from './lib/topBar'
+import { armAudio, getAudio } from './lib/audio'
+
+// The whole site has sound: the first click or key anywhere opens it (lib/audio.js), and every
+// console button clicks like a switch.
+function useSiteSound() {
+  useEffect(() => {
+    const audio = getAudio()
+    const stop = armAudio(audio)
+    const click = (e) => {
+      const el = e.target.closest?.('button, [role="button"], a.deck-link')
+      if (!el || el.disabled) return
+      audio.play('ui.click', { vol: 0.55, throttleMs: 40 })
+    }
+    document.addEventListener('click', click, true)
+    return () => { stop(); document.removeEventListener('click', click, true) }
+  }, [])
+}
 
 // Signed out on a page that needs an account: the sign-in page, which goes on to Waypoint
 // and comes back here.
@@ -29,6 +46,7 @@ function App() {
   // Whether sign-in goes through Waypoint; null until the server says.
   const [ssoEnabled, setSsoEnabled] = useState(null)
   const location = useLocation()
+  useSiteSound()
 
   useEffect(() => {
     auth.me()

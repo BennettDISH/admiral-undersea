@@ -2,11 +2,12 @@
 // the live match in memory (sockets/game.js) and write it here as it changes; join-game and the
 // first lobby setup after a restart read it back.
 //
-// A row holds the whole in-memory match, or only the lobby's automation setup before the game
-// starts (automatedRoles, systemPriority). It goes with its game, 1 day after game-over, and 7
-// days after the last change to it. Every call here logs a database failure and carries on: a
-// match that cannot be saved is still played from memory.
+// A row holds the whole in-memory match (server/game/engine.js). It goes with its game, 1 day
+// after game-over, and 7 days after the last change to it. Every call here logs a database
+// failure and carries on: a match that cannot be saved is still played from memory. A row from
+// before the 2026-11 overhaul (another game's rules) is not a match: the game starts afresh.
 const db = require('../config/database');
+const engine = require('../game/engine');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long a finished game's match is kept, from the game-over. */
@@ -14,9 +15,8 @@ const FINISHED_TTL_MS = DAY_MS;
 /** How long a match nobody has changed is kept. */
 const IDLE_TTL_MS = 7 * DAY_MS;
 
-/** Whether `state` is something the sockets can play from: a lobby setup, or a match with both boats. */
-const isMatch = (state) => Boolean(state) && typeof state === 'object' && !Array.isArray(state)
-  && (!state.submarines || (Boolean(state.submarines.alpha) && Boolean(state.submarines.bravo)));
+/** Whether `state` is something the sockets can play from: a match of this version with both boats. */
+const isMatch = (state) => engine.isMatch(state);
 
 /** Write the match for `gameCode`. A code with no game row writes nothing. Returns whether it ran. */
 async function save(gameCode, state) {

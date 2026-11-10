@@ -1,7 +1,7 @@
 {
   "name": "admiral-undersea",
   "version": "1.0.0",
-  "description": "Digital version of Captain Sonar board game",
+  "description": "A real-time submarine hunt for one crew against the AI or two crews of friends",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
@@ -16,8 +16,8 @@
     "node": "22.x"
   },
   "keywords": [
-    "captain-sonar",
-    "board-game",
+    "submarine",
+    "real-time",
     "multiplayer"
   ],
   "author": "",

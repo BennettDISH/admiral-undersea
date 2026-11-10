@@ -1,30 +1,29 @@
-// Crew stations: each play belongs to the station that makes it (captain, first mate, engineer,
-// radio operator), and the server takes it only from a player who picked that station in the
-// lobby. Players here are seated by join-game from a fake game_players table, as in the real
-// game, and try what their seat should not allow. The DB is mocked as in matchPersistence.test.js.
+// Stations and seats: each play belongs to the station that makes it (helm, listening, torpedo
+// room, engine room), and the server takes it only from a player who picked that station in the
+// lobby, in the game they joined. Players are seated by join-game from a fake game_players table,
+// as in the real game, and try what their seat should not allow. The clock is run by hand.
 const test = require('node:test');
 const assert = require('node:assert');
-const engine = require('../game/engine');
-const { ENGINEER_SLOTS } = require('../game/constants');
+const { TUNING } = require('../game/constants');
 
 // ---- a fake database: games, seats, and the game_matches table -----------------------------
 const games = {};   // code -> games row
 const seats = {};   // code -> { userId: { team, roles } }
 const matches = {}; // code -> stored state, as JSON text
+const finished = []; // codes whose result was written
 
-const ALL = 'captain,first-mate,engineer,radio-operator';
-// alpha has a full crew of four, bravo a captain; 7 sits on alpha with no station; 6 has no seat
+// alpha: one player per station; bravo: a helm; 7 sits on alpha with no station; 6 has no seat
 const CREW = () => ({
-  1: { team: 'alpha', roles: 'captain' },
-  2: { team: 'alpha', roles: 'first-mate' },
-  3: { team: 'alpha', roles: 'engineer' },
-  4: { team: 'alpha', roles: 'radio-operator' },
-  5: { team: 'bravo', roles: 'captain' },
+  1: { team: 'alpha', roles: 'helm' },
+  2: { team: 'alpha', roles: 'listener' },
+  3: { team: 'alpha', roles: 'weapons' },
+  4: { team: 'alpha', roles: 'chief' },
+  5: { team: 'bravo', roles: 'helm' },
   7: { team: 'alpha', roles: 'unassigned' },
 });
 
 function newGame(code, row = {}, seatList = CREW()) {
-  games[code] = { id: Object.keys(games).length + 1, code, status: 'playing', game_mode: 'turn-based', same_room: false, created_by: 1, ...row };
+  games[code] = { id: Object.keys(games).length + 1, code, status: 'lobby', game_mode: 'crews', same_room: false, created_by: 1, ...row };
   seats[code] = seatList;
   return code;
 }
@@ -38,8 +37,13 @@ require.cache[dbPath] = {
       if (/insert into game_matches/i.test(text)) { matches[params[0]] = params[1]; return { rows: [] }; }
       if (/delete from game_matches/i.test(text)) return { rows: [], rowCount: 0 };
       if (/from game_matches/i.test(text)) return { rows: matches[params[0]] ? [{ state: JSON.parse(matches[params[0]]) }] : [] };
-      if (/update games set status = 'playing'/i.test(text)) { games[params[0]].status = 'playing'; return { rows: [] }; }
-      if (/update games set status = 'finished'/i.test(text)) return { rows: [] };
+      if (/update games set status = 'playing'/i.test(text)) {
+        const g = games[params[0]];
+        if (!g || g.status !== 'lobby') return { rows: [], rowCount: 0 };
+        g.status = 'playing';
+        return { rows: [{ id: g.id }], rowCount: 1 };
+      }
+      if (/update games set status = 'finished'/i.test(text)) { finished.push(params[1]); return { rows: [], rowCount: 1 }; }
       if (/insert into game_players/i.test(text)) {
         const table = seats[codeOfId(params[0])];
         table[params[1]] = { roles: 'unassigned', ...table[params[1]], team: params[2] };
@@ -52,7 +56,9 @@ require.cache[dbPath] = {
         return { rows: [{ user_id: params[2] }] };
       }
       if (/from game_players/i.test(text)) {
-        const seat = seats[codeOfId(params[0])]?.[params[1]];
+        const table = seats[codeOfId(params[0])] || {};
+        if (params.length === 1) return { rows: Object.entries(table).map(([id, s]) => ({ user_id: Number(id), ...s })) };
+        const seat = table[params[1]];
         return { rows: seat ? [seat] : [] };
       }
       if (/from games/i.test(text)) return { rows: games[params[0]] ? [games[params[0]]] : [] };
@@ -65,13 +71,13 @@ require.cache[dbPath] = {
 const emitted = []; // every room emit
 const roomEmitter = (room) => ({ emit: (ev, payload) => emitted.push({ room, ev, payload }) });
 const io = { use() {}, on(ev, fn) { if (ev === 'connection') io._conn = fn; }, to: roomEmitter };
-require('./game')(io);
+const server = require('./game')(io, { clock: false });
 
-// A socket for `userId`, in no game until it joins one.
+let sockets = 0;
 function connect(userId) {
   const handlers = {};
   const socket = {
-    id: `s-${userId}`, userId, username: `u${userId}`,
+    id: `s-${userId}-${++sockets}`, userId, username: `u${userId}`,
     join() {}, leave() {}, to: roomEmitter,
     on(ev, fn) { handlers[ev] = fn; },
     emit(ev, payload) { socket._emitted.push({ ev, payload }); },
@@ -79,260 +85,201 @@ function connect(userId) {
   };
   io._conn(socket);
   const call = (ev, payload) => handlers[ev](payload);
-  return { socket, call, join: (gameCode) => call('join-game', { gameCode }) };
+  return { socket, call, join: (gameCode) => call('join-game', { gameCode }), drop: () => handlers.disconnect() };
 }
 async function seated(code, ...userIds) {
   const players = userIds.map(connect);
   for (const p of players) await p.join(code);
   return players;
 }
+async function started(code, ...userIds) {
+  const players = await seated(code, ...userIds);
+  const creator = players.find((p) => p.socket.userId === games[code].created_by) || (await seated(code, games[code].created_by))[0];
+  await creator.call('start-game', { gameCode: code });
+  return players;
+}
 
 const rejections = (player) => player.socket._emitted.filter((e) => e.ev === 'action-rejected').map((e) => e.payload);
 const lastRejection = (player) => rejections(player).pop();
-const roomEvents = (code) => emitted.filter((e) => e.room.startsWith(`game:${code}`) && e.ev !== 'player-joined');
-const happened = (code, ev) => roomEvents(code).some((e) => e.ev === ev);
-const stateOf = (player) => player.socket._emitted.filter((e) => e.ev === 'game-state').pop()?.payload;
+const roomEvents = (code) => emitted.filter((e) => e.room.startsWith(`game:${code}`) && !['player-joined', 'player-left'].includes(e.ev));
+const match = (code) => server._states.get(code);
 
-// Every play a captain makes, with the action name a refusal carries.
-const CAPTAIN_PLAYS = [
-  ['captain-move', { direction: 'S' }, 'move'],
-  ['fire-torpedo', { target: { x: 1, y: 3 } }, 'fire-torpedo'],
-  ['place-mine', { target: { x: 1, y: 2 } }, 'place-mine'],
-  ['detonate-mine', { target: { x: 1, y: 2 } }, 'detonate-mine'],
-  ['launch-drone', { sector: 1 }, 'launch-drone'],
-  ['use-sonar', {}, 'use-sonar'],
-  ['use-silence', { direction: 'S', distance: 1 }, 'use-silence'],
-  ['surface', {}, 'surface'],
+// Every play, the station it belongs to, and the action name a refusal carries.
+const PLAYS = [
+  ['helm', { speed: 2 }, 'helm', 'helm'],
+  ['helm', { turn: 1 }, 'helm', 'helm'],
+  ['mark', { cell: { x: 3, y: 3 } }, 'listener', 'mark'],
+  ['ping', {}, 'listener', 'ping'],
+  ['load', { tube: 0 }, 'weapons', 'load'],
+  ['fire', { tube: 0, target: { x: 3, y: 3 } }, 'weapons', 'fire'],
+  ['guide', { id: 1, target: { x: 3, y: 3 } }, 'weapons', 'guide'],
+  ['decoy', { heading: 2 }, 'weapons', 'decoy'],
+  ['power', { power: { engines: 3, sonar: 2, tubes: 1 } }, 'chief', 'power'],
+  ['repair', { faultId: 1 }, 'chief', 'repair'],
+  ['vent', {}, 'chief', 'vent'],
 ];
 
-test('the crew cannot make the captain\'s plays, and each is told why', async () => {
-  const code = newGame('CAPT01');
-  const crew = await seated(code, 2, 3, 4);
+test('each play is taken only from the station it belongs to, and anyone else is told whose job it is', async () => {
+  const code = newGame('STAT01');
+  const crew = await started(code, 1, 2, 3, 4);
+  const before = JSON.stringify(match(code).subs.alpha);
   for (const player of crew) {
-    for (const [ev, payload, action] of CAPTAIN_PLAYS) {
+    const mine = player.socket.userId === 1 ? 'helm' : player.socket.userId === 2 ? 'listener' : player.socket.userId === 3 ? 'weapons' : 'chief';
+    for (const [ev, payload, station, action] of PLAYS) {
+      if (station === mine) continue;
       await player.call(ev, { gameCode: code, ...payload });
       const rej = lastRejection(player);
-      assert.strictEqual(rej?.action, action, `${ev} by user ${player.socket.userId}`);
-      assert.strictEqual(rej.reason, 'not-your-station');
-      assert.strictEqual(rej.station, 'captain');
-      assert.match(rej.message, /^Only the Captain can [a-z ]+\.$/);
+      assert.equal(rej?.action, action, `${ev} by user ${player.socket.userId}`);
+      assert.equal(rej.reason, 'not-your-station');
+      assert.equal(rej.station, station);
     }
-    assert.strictEqual(rejections(player).length, CAPTAIN_PLAYS.length, 'one refusal per try, nothing else');
   }
-  assert.deepStrictEqual(roomEvents(code), [], 'the sub never moved, fired or surfaced');
+  assert.equal(JSON.stringify(match(code).subs.alpha), before, 'nothing on the boat changed');
 });
 
-test('the captain cannot charge, mark breakdowns, or say aye for the crew', async () => {
-  const code = newGame('CAPT02');
-  const [captain] = await seated(code, 1);
-  await captain.call('captain-move', { gameCode: code, direction: 'S' });
-  assert.ok(happened(code, 'move-announced'), 'the captain steers');
-
-  await captain.call('charge-system', { gameCode: code, system: 'torpedo' });
-  assert.deepStrictEqual(lastRejection(captain), {
-    action: 'charge', reason: 'not-your-station', station: 'first-mate', message: 'Only the First Mate can charge systems.',
-  });
-  await captain.call('mark-damage', { gameCode: code, slotId: 's1' });
-  assert.deepStrictEqual(lastRejection(captain), {
-    action: 'mark-damage', reason: 'not-your-station', station: 'engineer', message: 'Only the Engineer can mark breakdowns.',
-  });
-  for (const role of ['first-mate', 'engineer', 'radio-operator']) {
-    await captain.call('aye-captain', { gameCode: code, role });
-    const rej = lastRejection(captain);
-    assert.strictEqual(rej.station, role, 'the station named in the payload is the one checked');
-    assert.strictEqual(rej.action, 'confirm');
-  }
-  for (const ev of ['system-charged', 'damage-marked', 'role-confirmed', 'turn-complete']) {
-    assert.ok(!happened(code, ev), `no ${ev}`);
-  }
+test('a player at a station makes its plays: the helm steers, listening marks, the torpedo room loads, the engine room sets power', async () => {
+  const code = newGame('STAT02');
+  const [helm, listener, weapons, chief] = await started(code, 1, 2, 3, 4);
+  await helm.call('helm', { gameCode: code, speed: 1, turn: -1 });
+  await listener.call('mark', { gameCode: code, cell: { x: 4, y: 4 } });
+  await weapons.call('load', { gameCode: code, tube: 1 });
+  await chief.call('power', { gameCode: code, power: { engines: 1, sonar: 3, tubes: 2 } });
+  const b = match(code).subs.alpha;
+  assert.equal(b.ordered, 1);
+  assert.deepEqual({ x: b.marker.x, y: b.marker.y }, { x: 4, y: 4 });
+  assert.equal(b.tubes[1].state, 'loading');
+  assert.deepEqual(b.power, { engines: 1, sonar: 3, tubes: 2 });
+  // what reached the rooms went to alpha's room only
+  const teamFx = roomEvents(code).filter((e) => e.ev === 'fx');
+  assert.ok(teamFx.length > 0);
+  assert.ok(teamFx.every((e) => e.room === `game:${code}:alpha`));
+  // a malformed play is dropped without a word
+  for (const bad of [{ cell: { x: 1.5, y: 2 } }, { cell: 'A1' }]) await listener.call('mark', { gameCode: code, ...bad });
+  await weapons.call('load', { gameCode: code, tube: 5 });
+  await chief.call('power', { gameCode: code, power: { engines: '4', sonar: 2, tubes: 2 } });
+  assert.deepEqual(b.power, { engines: 1, sonar: 3, tubes: 2 });
 });
 
-test('a crew member cannot say aye, charge or mark for another station', async () => {
-  const code = newGame('CREW01');
-  const [captain, mate, engineer, radio] = await seated(code, 1, 2, 3, 4);
-  await captain.call('captain-move', { gameCode: code, direction: 'S' });
-
-  await radio.call('aye-captain', { gameCode: code, role: 'engineer' });
-  assert.strictEqual(lastRejection(radio).station, 'engineer');
-  await radio.call('aye-captain', { gameCode: code, role: 'first-mate' });
-  assert.strictEqual(lastRejection(radio).station, 'first-mate');
-  await engineer.call('charge-system', { gameCode: code, system: 'torpedo' });
-  assert.strictEqual(lastRejection(engineer).station, 'first-mate');
-  await mate.call('mark-damage', { gameCode: code, slotId: 's1' });
-  assert.strictEqual(lastRejection(mate).station, 'engineer');
-  await mate.call('aye-captain', { gameCode: code, role: 'radio-operator' });
-  assert.strictEqual(lastRejection(mate).station, 'radio-operator');
-  assert.ok(!happened(code, 'role-confirmed'));
-
-  // a name that is no crew station gets the engine's answer, not a station check
-  await radio.call('aye-captain', { gameCode: code, role: 'captain' });
-  assert.deepStrictEqual(lastRejection(radio), { action: 'confirm', reason: 'bad-role' });
-  await radio.call('aye-captain', { gameCode: code, role: { toString: () => 'radio-operator' } });
-  assert.deepStrictEqual(lastRejection(radio), { action: 'confirm', reason: 'bad-role' });
+test('a seat in one game plays nothing in another by naming its code, and no seat plays nothing at all', async () => {
+  const a = newGame('STAT03');
+  const b = newGame('STAT04', {}, { 1: { team: 'bravo', roles: 'helm' }, 5: { team: 'alpha', roles: 'helm' } });
+  await started(b, 1, 5);
+  const [helm] = await started(a, 1);
+  const before = JSON.stringify(match(b).subs);
+  await helm.call('helm', { gameCode: b, speed: 3 });
+  const [stranger] = await seated(a, 6);
+  await stranger.call('helm', { gameCode: a, speed: 3 });
+  assert.equal(JSON.stringify(match(b).subs), before);
+  assert.equal(match(a).subs.alpha.ordered, 0);
+  assert.deepEqual(rejections(stranger), [], 'no seat: nothing to say');
+  assert.equal(stranger.socket._emitted.filter((e) => e.ev === 'game-state').length, 0, 'and no view of the match');
 });
 
-test('each station plays its own part and the turn completes', async () => {
-  const code = newGame('CREW02');
-  const [captain, mate, engineer, radio] = await seated(code, 1, 2, 3, 4);
-  await captain.call('captain-move', { gameCode: code, direction: 'S' });
-  await mate.call('charge-system', { gameCode: code, system: 'torpedo' });
-  await engineer.call('mark-damage', { gameCode: code, slotId: 's1' });
-  assert.ok(happened(code, 'system-charged'));
-  assert.ok(happened(code, 'damage-marked'));
-  await mate.call('aye-captain', { gameCode: code, role: 'first-mate' });
-  await engineer.call('aye-captain', { gameCode: code, role: 'engineer' });
-  assert.ok(!happened(code, 'turn-complete'));
-  await radio.call('aye-captain', { gameCode: code, role: 'radio-operator' });
-  assert.ok(happened(code, 'turn-complete'));
-  for (const p of [captain, mate, engineer, radio]) assert.deepStrictEqual(rejections(p), []);
+test('a seat without a station sees its boat but plays nothing', async () => {
+  const code = newGame('STAT05');
+  await started(code, 1, 7);
+  const [idle] = await seated(code, 7); // back after the start
+  assert.equal(idle.socket._emitted.filter((e) => e.ev === 'game-state').length, 1, 'the view on joining');
+  for (const [ev, payload] of PLAYS) await idle.call(ev, { gameCode: code, ...payload });
+  assert.equal(rejections(idle).length, PLAYS.length);
+  assert.equal(match(code).subs.alpha.ordered, 0);
 });
 
-test('one device holding every station plays the whole turn (a same-room table)', async () => {
-  const code = newGame('ROOM01', { same_room: true }, { 8: { team: 'alpha', roles: ALL }, 5: { team: 'bravo', roles: 'captain,engineer' } });
-  const [table, bravo] = await seated(code, 8, 5);
-  await table.call('captain-move', { gameCode: code, direction: 'S' });
-  await table.call('charge-system', { gameCode: code, system: 'torpedo' });
-  await table.call('mark-damage', { gameCode: code, slotId: 's1' });
-  for (const role of ['first-mate', 'engineer', 'radio-operator']) await table.call('aye-captain', { gameCode: code, role });
-  assert.ok(happened(code, 'turn-complete'));
-  assert.deepStrictEqual(rejections(table), []);
-
-  // two stations on one device: both work, and the ones it lacks still do not
-  const dir = stateOf(bravo).legalMoves[0];
-  await bravo.call('captain-move', { gameCode: code, direction: dir });
-  await bravo.call('mark-damage', { gameCode: code, slotId: ENGINEER_SLOTS.find((s) => s.dir === dir).id });
-  assert.ok(roomEvents(code).some((e) => e.ev === 'damage-marked' && e.payload.team === 'bravo'));
-  await bravo.call('charge-system', { gameCode: code, system: 'torpedo' });
-  assert.strictEqual(lastRejection(bravo).station, 'first-mate');
-});
-
-test('a player on the other team plays only their own sub, whatever the payload names', async () => {
-  const code = newGame('ENEMY1');
-  const [alphaCaptain, bravo] = await seated(code, 1, 5);
-  const before = stateOf(alphaCaptain).submarines.alpha.position;
-  const dir = stateOf(bravo).legalMoves[0];
-  await bravo.call('captain-move', { gameCode: code, direction: dir, team: 'alpha' });
-  const moves = roomEvents(code).filter((e) => e.ev === 'move-announced');
-  assert.deepStrictEqual(moves.map((e) => e.payload.team), ['bravo']);
-  const after = emitted.filter((e) => e.ev === 'game-state' && e.room === `game:${code}:alpha`).pop().payload;
-  assert.deepStrictEqual(after.submarines.alpha.position, before, 'alpha did not move');
-
-  // bravo's captain is not alpha's: setting alpha's charging order is not theirs to do
-  emitted.length = 0;
-  await bravo.call('set-system-priority', { gameCode: code, team: 'alpha', systemPriority: ['mine'] });
-  await alphaCaptain.call('captain-move', { gameCode: code, direction: 'S' });
-  const alphaState = emitted.filter((e) => e.ev === 'game-state' && e.room === `game:${code}:alpha`).pop().payload;
-  assert.notDeepStrictEqual(alphaState.systemPriority, ['mine']);
-});
-
-test('only the captain sets the automated first mate\'s charging order', async () => {
-  const code = newGame('PRIO01');
-  const [captain, radio] = await seated(code, 1, 4);
-  await radio.call('set-system-priority', { gameCode: code, team: 'alpha', systemPriority: ['mine'] });
-  assert.deepStrictEqual(lastRejection(radio), {
-    action: 'set-priority', reason: 'not-your-station', station: 'captain', message: 'Only the Captain can set the First Mate\'s charging order.',
-  });
-  await captain.call('set-system-priority', { gameCode: code, team: 'alpha', systemPriority: ['sonar', 'mine'] });
-  assert.deepStrictEqual(rejections(captain), []);
-  await captain.call('captain-move', { gameCode: code, direction: 'S' });
-  const state = emitted.filter((e) => e.ev === 'game-state' && e.room === `game:${code}:alpha`).pop().payload;
-  assert.deepStrictEqual(state.systemPriority, ['sonar', 'mine']);
-});
-
-test('a spectator with no seat is ignored outright', async () => {
-  const code = newGame('WATCH1');
-  const [watcher] = await seated(code, 6);
-  assert.strictEqual(watcher.socket.team, null);
-  for (const [ev, payload] of CAPTAIN_PLAYS) await watcher.call(ev, { gameCode: code, ...payload });
-  await watcher.call('charge-system', { gameCode: code, system: 'torpedo' });
-  await watcher.call('mark-damage', { gameCode: code, slotId: 's1' });
-  for (const role of ['first-mate', 'engineer', 'radio-operator']) await watcher.call('aye-captain', { gameCode: code, role });
-  await watcher.call('sonar-response', { gameCode: code, facts: [] });
-  await watcher.call('set-system-priority', { gameCode: code, team: 'alpha', systemPriority: ['mine'] });
-  assert.deepStrictEqual(watcher.socket._emitted, [], 'not even a game-state: they are on no team');
-  assert.deepStrictEqual(roomEvents(code), []);
-});
-
-test('a seat with no station plays nothing, sonar replies included', async () => {
-  const code = newGame('IDLE01');
-  matches[code] = JSON.stringify((() => {
-    const s = engine.initGameState('turn-based', false);
-    s.submarines.alpha.pendingSonar = { askingTeam: 'bravo', id: 9001 };
-    return s;
-  })());
-  const [idle, radio] = await seated(code, 7, 4);
-  assert.strictEqual(idle.socket.team, 'alpha');
-  await idle.call('captain-move', { gameCode: code, direction: 'S' });
-  assert.strictEqual(lastRejection(idle).reason, 'not-your-station');
-  const facts = engine.autoSonarFacts(stateOf(idle).submarines.alpha);
-  await idle.call('sonar-response', { gameCode: code, facts });
-  assert.deepStrictEqual(lastRejection(idle), {
-    action: 'sonar-response', reason: 'no-station', message: 'Only crew with a station can answer the sonar.',
-  });
-  assert.ok(!happened(code, 'sonar-answered'));
-
-  // any crew station may answer the ping
-  await radio.call('sonar-response', { gameCode: code, facts });
-  assert.deepStrictEqual(rejections(radio), []);
-  assert.ok(happened(code, 'sonar-answered'));
-});
-
-test('a player who leaves for another game takes no station with them, and has it back on return', async () => {
-  const code = newGame('LEFT01');
-  newGame('LEFT02', {}, {});
-  const [captain] = await seated(code, 1);
-  await captain.join('LEFT02'); // not seated there
-  assert.deepStrictEqual(captain.socket.roles, []);
-  await captain.call('captain-move', { gameCode: code, direction: 'S' });
-  await captain.call('captain-move', { gameCode: 'LEFT02', direction: 'S' });
-  assert.deepStrictEqual(rejections(captain), []);
-  assert.ok(!happened(code, 'move-announced') && !happened('LEFT02', 'move-announced'));
-
-  // the old socket is gone (a closed tab); a new one joins and is captain again
-  const back = connect(1);
-  await back.join(code);
-  await back.call('captain-move', { gameCode: code, direction: 'S' });
-  assert.ok(happened(code, 'move-announced'));
-});
-
-test('stations are picked in the lobby only, and only with a seat', async () => {
-  const code = newGame('LOBBY1', { status: 'lobby' }, { 1: { team: 'alpha', roles: 'captain' }, 5: { team: 'bravo', roles: 'captain' } });
-  const [creator, newcomer] = await seated(code, 1, 9);
-  // picking a station before a team gives none
-  await newcomer.call('select-roles', { gameCode: code, roles: ['captain'] });
-  assert.deepStrictEqual(newcomer.socket.roles, []);
-  assert.ok(!happened(code, 'roles-updated'));
-  await newcomer.call('select-team', { gameCode: code, team: 'alpha' });
-  assert.deepStrictEqual(newcomer.socket.roles, []);
-  await newcomer.call('select-roles', { gameCode: code, roles: ['radio-operator'] });
-  assert.deepStrictEqual(newcomer.socket.roles, ['radio-operator']);
-  assert.strictEqual(seats[code][9].roles, 'radio-operator');
-
+test('start-game: only the creator, only once, and the crew comes from the seats', async () => {
+  const code = newGame('STAT06');
+  const [, two] = await seated(code, 1, 2);
+  await two.call('start-game', { gameCode: code });
+  assert.equal(lastRejection(two).reason, 'not-creator');
+  assert.equal(match(code), undefined);
+  const [creator] = await seated(code, 1);
   await creator.call('start-game', { gameCode: code });
-  assert.ok(happened(code, 'game-started'));
-  // once the game is on, nobody promotes themselves to captain
-  await newcomer.call('select-roles', { gameCode: code, roles: ['captain'] });
-  assert.deepStrictEqual(newcomer.socket.roles, ['radio-operator']);
-  await newcomer.call('captain-move', { gameCode: code, direction: 'S' });
-  assert.strictEqual(lastRejection(newcomer).station, 'captain');
-  assert.ok(!happened(code, 'move-announced'));
+  const first = match(code);
+  assert.deepEqual(first.crew.alpha, { helm: 'human', listener: 'human', weapons: 'human', chief: 'human' });
+  assert.deepEqual(first.crew.bravo, { helm: 'human', listener: 'auto', weapons: 'auto', chief: 'auto' });
+  await creator.call('start-game', { gameCode: code });
+  assert.equal(lastRejection(creator).reason, 'game-started');
+  assert.equal(match(code), first, 'the match was not replaced');
+  // each team's room got its own view only
+  const starts = roomEvents(code).filter((e) => e.ev === 'game-started');
+  assert.deepEqual(starts.map((e) => [e.room, e.payload.team]), [[`game:${code}:alpha`, 'alpha'], [`game:${code}:bravo`, 'bravo']]);
 });
 
-test('live mode: the first mate spends charge tokens and the engineer works the breakdown queue', async () => {
-  const code = newGame('LIVE01', { game_mode: 'live' });
-  const [captain, mate, engineer, radio] = await seated(code, 1, 2, 3, 4);
-  await captain.call('captain-move', { gameCode: code, direction: 'S' });
-  await captain.call('charge-system', { gameCode: code, system: 'torpedo' });
-  assert.strictEqual(lastRejection(captain).station, 'first-mate');
-  await radio.call('mark-damage', { gameCode: code, slotId: 's1' });
-  assert.strictEqual(lastRejection(radio).station, 'engineer');
-  assert.ok(!happened(code, 'system-charged') && !happened(code, 'damage-marked'));
+test('teams and stations are picked in the lobby only; against the AI everyone crews the one boat', async () => {
+  const code = newGame('STAT07', {}, {});
+  const [p] = await seated(code, 9);
+  await p.call('select-roles', { gameCode: code, roles: ['helm'] });
+  assert.equal(seats[code][9], undefined, 'no stations before a team');
+  await p.call('select-team', { gameCode: code, team: 'bravo' });
+  await p.call('select-roles', { gameCode: code, roles: ['helm', 'captain', 'helm', 'chief', 42] });
+  assert.deepEqual(seats[code][9], { roles: 'helm,chief', team: 'bravo' });
+  games[code].status = 'playing';
+  await p.call('select-team', { gameCode: code, team: 'alpha' });
+  assert.equal(lastRejection(p).reason, 'game-started');
+  await p.call('select-roles', { gameCode: code, roles: ['listener'] });
+  assert.equal(seats[code][9].roles, 'helm,chief');
 
-  await mate.call('charge-system', { gameCode: code, system: 'torpedo' });
-  await engineer.call('mark-damage', { gameCode: code, slotId: 's1' });
-  assert.ok(happened(code, 'system-charged'));
-  assert.ok(happened(code, 'damage-marked'));
-  const sub = emitted.filter((e) => e.ev === 'game-state' && e.room === `game:${code}:alpha`).pop().payload.submarines.alpha;
-  assert.strictEqual(sub.chargeTokens, 0);
-  assert.deepStrictEqual(sub.breakdownQueue, []);
+  const solo = newGame('STAT08', { game_mode: 'vs-ai' }, {});
+  const [q] = await seated(solo, 10);
+  await q.call('select-team', { gameCode: solo, team: 'bravo' });
+  assert.equal(lastRejection(q).reason, 'ai-boat');
+  await q.call('select-team', { gameCode: solo, team: 'alpha' });
+  assert.equal(seats[solo][10].team, 'alpha');
+});
+
+test('the clock ticks a running match and sends each team its own view and its own contacts', async () => {
+  const code = newGame('STAT09', { game_mode: 'vs-ai' }, { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' } });
+  const [me] = await started(code, 1);
+  const s = match(code);
+  assert.equal(s.vsAi, true);
+  assert.deepEqual(s.crew.bravo, { helm: 'auto', listener: 'auto', weapons: 'auto', chief: 'auto' });
+  await me.call('power', { gameCode: code, power: { engines: 3, sonar: 2, tubes: 1 } });
+  await me.call('helm', { gameCode: code, speed: 3 });
+  const from = emitted.length;
+  for (let i = 0; i < 60; i++) server._tickAll();
+  assert.ok(s.t >= 5.9, 'six seconds of play');
+  const out = emitted.slice(from).filter((e) => e.room.startsWith(`game:${code}`));
+  const views = out.filter((e) => e.ev === 'game-state');
+  assert.ok(views.length >= 20, 'about five views a second for each team');
+  for (const v of views) assert.equal(v.room, `game:${code}:${v.payload.team}`);
+  for (const c of out.filter((e) => e.ev === 'fx' && e.payload.type === 'contact')) {
+    assert.notEqual(c.room, `game:${code}`, 'a contact never goes to the whole room');
+  }
+});
+
+test('a station whose people have all gone is handed to the auto-crew, and handed back when one returns', async () => {
+  const code = newGame('STAT10', {}, { 1: { team: 'alpha', roles: 'helm,weapons' }, 5: { team: 'bravo', roles: 'helm' } });
+  const [one, five] = await started(code, 1, 5);
+  const s = match(code);
+  server._tickAll();
+  assert.equal(s.away.alpha.helm, undefined);
+  one.drop();
+  server._tickAll();
+  assert.ok(!s.away.alpha.helm, 'not straight away');
+  s.awaySince.alpha.helm -= TUNING.AWAY_SECONDS * 1000;
+  s.awaySince.alpha.weapons -= TUNING.AWAY_SECONDS * 1000;
+  server._tickAll();
+  assert.equal(s.away.alpha.helm, true);
+  const view = emitted.filter((e) => e.ev === 'game-state' && e.room === `game:${code}:alpha`).pop().payload;
+  assert.equal(view.crew.helm, 'auto');
+  const [back] = await seated(code, 1);
+  server._tickAll();
+  assert.equal(s.away.alpha.helm, false);
+  assert.ok(back.socket._emitted.some((e) => e.ev === 'game-state'));
+  five.drop();
+});
+
+test('a match with nobody aboard stops ticking after a while, and starts again when someone joins', async () => {
+  const code = newGame('STAT11', { game_mode: 'vs-ai' }, { 1: { team: 'alpha', roles: 'helm' } });
+  const [me] = await started(code, 1);
+  const s = match(code);
+  me.drop();
+  server._tickAll();
+  const t = s.t;
+  s.emptySince -= 61 * 1000;
+  server._tickAll();
+  server._tickAll();
+  assert.equal(s.t, t, 'paused');
+  await seated(code, 1);
+  server._tickAll();
+  assert.ok(s.t > t, 'running again');
 });

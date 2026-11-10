@@ -1,42 +1,71 @@
-// Single-sourced game data (shared with the client via ../../shared/gameConstants.json).
-// This module adds server-side derived values + tunables on top of the raw data.
+// Single-sourced game data (shared with the client via ../../shared/gameConstants.json), plus the
+// server's own tuning on top of it. Every number a player can feel lives in one of the two.
 const DATA = require('../../shared/gameConstants.json');
 
-const SYSTEM_MAX = DATA.systemMax;
-const getSystemMax = (system) => SYSTEM_MAX[system] || 3;
+const STATIONS = DATA.stations; // helm, listener, weapons, chief
+const HEADINGS = DATA.headings; // N, NE, E, SE, S, SW, W, NW (index * 45 degrees)
+const TEAMS = ['alpha', 'bravo'];
 
-const REQUIRED_ROLES = ['first-mate', 'engineer', 'radio-operator'];
-const DIRECTIONS = ['N', 'S', 'E', 'W'];
-
-// Pacing tunables. Turn-based ignores the real-time ones.
-const TUNABLES = {
-  MOVE_COOLDOWN_MS: 1500,          // real-time captain move cooldown (online)
-  MOVE_COOLDOWN_MS_SAME_ROOM: 1000, // shorter when everyone shares a room
-  MAX_PENDING_BREAKDOWNS: 3,       // real-time backpressure: engineer can't fall further behind
-  ACTION_COOLDOWN_MS: 500,         // debounce accidental double-activation of a system
-  SURFACE_SECONDS: 15,             // real-time: how long a sub is stuck on the surface
-  SURFACE_PENALTY_TURNS: 1,        // turn-based: turns lost while surfaced
-  SONAR_RESPONSE_TIMEOUT_MS: 8000, // auto-answer a sonar if the target stalls
-  AUTOMATION_DELAY_MS: 500,        // let the UI update before automated crew acts
-  TURN_WATCHDOG_MS: 30000,         // auto-confirm missing human roles so a drop can't hang a turn
-  SURFACE_REPAIRS_HULL: false,     // faithful: surface clears breakdowns + trail, NOT hull HP
+// The server's sim and its noise model. Levels: 1 a slow boat, 2 half, 3 full, 4 a running
+// torpedo or a scrape on rock, 5 a launch or a ping, 6 a blast.
+const TUNING = {
+  TICK_SECONDS: 0.1,
+  MATCH_SECONDS: DATA.matchSeconds, // then the boat with more hull wins (equal is a draw)
+  HEAT_PER_OVER_POWER: 7,       // per second, for each power above the base
+  HEAT_COOL: 6,                 // per second, at or under the base
+  HEAT_FIRE: 6,                 // per second while a fire burns
+  SCRAM_SECONDS: 8,
+  HEAT_AFTER_SCRAM: 60,
+  FIRE_ENGINE_CAP: 2,           // engines power while a fire burns
+  FLOOD_DAMAGE_SECONDS: 20,     // a flood left alone costs one hull this often
+  TORPEDO_NOISE_EVERY: 0.6,
+  DECOY_NOISE_EVERY: 1.1,
+  WHALE_SECONDS_PER_CELL: 4,
+  WHALE_SONG_MIN: 9,
+  WHALE_SONG_MAX: 16,
+  CONTACT_TTL: 45,              // seconds a heard contact stays on the plot
+  MAX_CONTACTS: 60,
+  BLAST_TTL: 12,
+  VENT_MASK: 2,                 // a boat in a vent field is this much quieter
+  HEAR_BASE: 2,
+  HEAR_PER_LEVEL: 3.2,
+  HEAR_PER_SONAR: 0.8,
+  FLOW_NOISE_SPEED: 3,          // at this speed our own flow noise deafens the hydrophones
+  FLOW_NOISE_FACTOR: 0.6,
+  SONAR_FAULT_FACTOR: 0.6,
+  WIDTH_BASE: 28,
+  WIDTH_PER_LEVEL: 5,
+  WIDTH_PER_SONAR: 3,
+  WIDTH_PER_CELL: 1.2,
+  WIDTH_MIN: 4,
+  WIDTH_MAX: 45,
+  NEAR_CELLS: 3,                // a contact this close is marked near
+  AWAY_SECONDS: 15,             // a station whose players are all gone this long is run by the auto-crew
+  CALL_COOLDOWN: 1.5,
+  CALL_BOOST_SECONDS: 20,       // the auto chief answers a call for power for this long
+  SHOT_SPACING: 6,              // the auto torpedo room waits this long between shots
+  FIRE_MIN_DISTANCE: 2,         // nobody fires closer than this (the auto crew; the client warns a person)
 };
 
 module.exports = {
   DATA,
   BOARD: DATA.board,
-  MAP: DATA.map,
-  START_POSITIONS: DATA.startPositions,
-  MAX_HEALTH: DATA.maxHealth,
-  SYSTEM_MAX,
-  getSystemMax,
-  ENGINEER_SLOTS: DATA.engineerSlots,
-  CIRCUITS: DATA.circuits,
-  DEFAULT_PRIORITY: DATA.defaultPriority,
-  TORPEDO_RANGE: DATA.torpedoRange,
-  SILENCE_RANGE: DATA.silenceRange,
-  MINE_RANGE: DATA.mineRange,
-  REQUIRED_ROLES,
-  DIRECTIONS,
-  TUNABLES,
+  MAPS: DATA.maps,
+  STATIONS,
+  HEADINGS,
+  TEAMS,
+  SPEEDS: DATA.speeds,
+  SECONDS_PER_CELL: DATA.secondsPerCell,
+  HULL_MAX: DATA.hullMax,
+  POWER: DATA.power,
+  TORPEDO: DATA.torpedo,
+  PING: DATA.ping,
+  DECOY: DATA.decoy,
+  VENT: DATA.vent,
+  REPAIR_SECONDS: DATA.repairSeconds,
+  FAULTS: DATA.faults,
+  FAULT_KINDS: Object.keys(DATA.faults),
+  CALLS: DATA.calls,
+  CALL_IDS: Object.keys(DATA.calls),
+  TUNING,
 };

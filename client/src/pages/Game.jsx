@@ -1,843 +1,334 @@
-import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
-import { armAudio, getAudio } from '../lib/audio'
-import { AYE_GAP, AYE_PITCH, MOVE_HZ, blastFeedback } from '../game/blastFeedback'
-import socket, { connectSocket } from '../services/socket'
-import { joinGameOnConnect } from '../lib/gameRoom'
-import MapBoard from '../game/MapBoard'
-import EventLog from '../game/EventLog'
-import ToastHost from '../game/ToastHost'
-import RoleHelp from '../game/RoleHelp'
-import { DIR_ARROW, DIR_NAME, CIRCUIT_NAME, ROLE_HELP } from '../game/roleInfo'
+import { getAudio } from '../lib/audio'
+import { useScene } from '../lib/useScene'
+import { useMatch } from '../game/useMatch'
+import ChartCanvas from '../game/ChartCanvas'
+import CrewPanel from '../game/CrewPanel'
+import { HelmStation, ListeningStation, TorpedoStation, EngineStation } from '../game/Stations'
+import { react, ending, newMemory } from '../game/reactions'
+import { LINES, speakerOf } from '../game/voice'
+import { loadArt } from '../game/sprites'
 import {
-  SIMPLE_MAP, SYSTEMS, ENGINEER_SLOTS, CIRCUITS, MAX_HEALTH, NUM_SECTORS,
-  TORPEDO_RANGE, SILENCE_RANGE, getSlotsForDirection, sectorOf, isWater, stepCell, reachableWithin,
-} from '../game/constants'
-import { computeCandidates, traceFrom } from '../game/radio'
+  STATIONS, STATION_INFO, TEAM_INFO, HULL_MAX, MATCH_SECONDS, CALLS, chart, headingFor, bearing, clockText, enemyOf,
+} from '../game/rules'
 
-const DIRS = ['N', 'S', 'E', 'W']
-const REQUIRED = ['first-mate', 'engineer', 'radio-operator']
-const cellKey = (x, y) => `${x},${y}`
-// action-rejected reasons that are just pacing noise, not worth a toast.
-const QUIET_REJECTS = new Set(['awaiting-confirmation', 'cooldown', 'crew-behind', 'already-charged'])
-
-// A blast felt through the hull: how far the page jolts and for how long.
-const SHAKES = { big: { px: 9, ms: 520 }, small: { px: 3, ms: 360 } }
+const SHAKES = { big: { px: 10, ms: 600 }, small: { px: 4, ms: 380 } }
 const reduceMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const PANELS = { helm: HelmStation, listener: ListeningStation, weapons: TorpedoStation, chief: EngineStation }
 
-function Game({ user }) {
-  const { code } = useParams()
-  const navigate = useNavigate()
-
-  const [game, setGame] = useState(null)
-  const [myTeam, setMyTeam] = useState(null)
-  const [myRoles, setMyRoles] = useState([])
-  const [activeRole, setActiveRole] = useState(null)
-  const [gameState, setGameState] = useState(null)
-
-  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false)
-  const [confirmedRoles, setConfirmedRoles] = useState([])
-  const [lastMove, setLastMove] = useState(null)
-  const [hasChargedSystem, setHasChargedSystem] = useState(false)
-  const [hasMarkedDamage, setHasMarkedDamage] = useState(false)
-  const [damagedSlots, setDamagedSlots] = useState([])
-
-  const [targeting, setTargeting] = useState(null) // 'torpedo'|'mine'|'silence'|'drone'|null
-  const [droneReport, setDroneReport] = useState(null)
-  const [sonarReport, setSonarReport] = useState(null)
-  const [sonarOwed, setSonarOwed] = useState(null)     // { askingTeam } we must answer
-  const [sonarForm, setSonarForm] = useState([{ type: 'sector', value: 1 }, { type: 'row', value: 0 }])
-
-  const [radioEvents, setRadioEvents] = useState([])
-  const [ghostStart, setGhostStart] = useState(null)
-  const [annotations, setAnnotations] = useState([])
-  const [enemySurfacedSector, setEnemySurfacedSector] = useState(null)
-  const [radioPlacing, setRadioPlacing] = useState('ghost') // 'ghost' | 'annotate'
-
-  const [eventLog, setEventLog] = useState([])
-  const [toasts, setToasts] = useState([])
-  const [result, setResult] = useState(null)
-
-  const [automatedRoles, setAutomatedRoles] = useState([])
-  const [systemPriority, setSystemPriority] = useState(['torpedo', 'mine', 'drone', 'sonar', 'silence'])
-  const [tick, setTick] = useState(0) // drives cooldown/surface countdowns
-
-  // Refs so socket handlers read fresh values without re-subscribing.
-  const myTeamRef = useRef(null)
-  const myRolesRef = useRef([])
-  const idRef = useRef(0)
-  const gameStateRef = useRef(null)
-  const pageRef = useRef(null)
-  const flashRef = useRef(null)
-  // When the last "aye" is due: stations answering together (an automated crew does) take turns.
-  const ayeAtRef = useRef(0)
-
-  const audio = getAudio()
-  const soundPrefs = useSyncExternalStore(audio.subscribe, audio.snapshot, audio.snapshot)
-  // No sound before the first tap or key: then the boat's sounds load.
-  useEffect(() => armAudio(audio), [audio])
-
-  /** The page jolts with a blast; a big one also flashes red. Still for anyone who asked for less motion. */
-  const feelBlast = (shake, flash) => {
-    if (reduceMotion()) return
-    const s = SHAKES[shake]
-    const page = pageRef.current
-    if (s && page?.animate) {
-      const p = s.px
-      page.animate(
-        [
-          { transform: 'translate(0, 0)' },
-          { transform: `translate(${-p}px, ${p * 0.4}px)` },
-          { transform: `translate(${p * 0.8}px, ${-p * 0.5}px)` },
-          { transform: `translate(${-p * 0.5}px, ${p * 0.3}px)` },
-          { transform: `translate(${p * 0.3}px, 0)` },
-          { transform: 'translate(0, 0)' },
-        ],
-        { duration: s.ms, easing: 'ease-out' },
-      )
-    }
-    if (flash) flashRef.current?.animate?.([{ opacity: 0.6 }, { opacity: 0 }], { duration: 650, easing: 'ease-out' })
-  }
-
-  const mode = gameState?.mode || game?.game_mode || 'turn-based'
-  const isLive = mode === 'live'
-  const mySub = gameState?.submarines?.[myTeam]
-  const enemyTeam = myTeam === 'alpha' ? 'bravo' : 'alpha'
-
-  const pushLog = (kind, text) => setEventLog((prev) => [...prev, { id: ++idRef.current, kind, text }])
-  const pushToast = (kind, text) => {
-    const id = ++idRef.current
-    setToasts((prev) => [...prev, { id, kind, text }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000)
-  }
-
-  // Countdown ticker (cheap; only meaningful while surfaced or on cooldown).
-  useEffect(() => {
-    const iv = setInterval(() => setTick((t) => t + 1), 500)
-    return () => clearInterval(iv)
-  }, [])
-
-  useEffect(() => { myTeamRef.current = myTeam }, [myTeam])
-  useEffect(() => { myRolesRef.current = myRoles }, [myRoles])
-
-  useEffect(() => {
-    loadGame()
-    connectSocket(user.id)
-    // A rejoin also gets this team's game-state back, which applyState hydrates from.
-    const stopJoining = joinGameOnConnect(socket, code)
-
-    const applyState = (state) => {
-      gameStateRef.current = state
-      setGameState(state)
-      if (state.automatedRoles) setAutomatedRoles(state.automatedRoles)
-      if (state.systemPriority) setSystemPriority(state.systemPriority)
-      // Hydrate turn/engineer UI state from the authoritative snapshot so a mid-game reload
-      // or reconnect renders correctly instead of showing a fresh (wrong) turn.
-      const sub = state.submarines?.[myTeamRef.current]
-      if (sub) {
-        setAwaitingConfirmation(!!sub.awaitingConfirmation)
-        setConfirmedRoles(sub.confirmedRoles || [])
-        setDamagedSlots((sub.damage || []).map((d) => d.slotId))
-        setHasChargedSystem(!!sub.chargedThisMove)
-      }
-    }
-
-    socket.on('game-state', applyState)
-    socket.on('game-started', applyState)
-
-    socket.on('move-announced', ({ team, direction, awaitingConfirmation: awaiting }) => {
-      const mt = myTeamRef.current
-      if (team === mt) {
-        setLastMove({ team, direction })
-        setAwaitingConfirmation(awaiting)
-        setHasChargedSystem(false)
-        setHasMarkedDamage(false)
-      } else {
-        setRadioEvents((prev) => [...prev, { type: 'move', dir: direction }])
-        pushLog('move', `Enemy moved ${direction}`)
-      }
-    })
-
-    socket.on('play-move-sound', ({ direction }) => {
-      if (myRolesRef.current.includes('radio-operator') && MOVE_HZ[direction]) audio.tone(MOVE_HZ[direction])
-    })
-
-    socket.on('role-confirmed', ({ team, role }) => {
-      if (team !== myTeamRef.current) return
-      setConfirmedRoles((prev) => prev.includes(role) ? prev : [...prev, role])
-      const now = performance.now() / 1000
-      const at = Math.max(now, ayeAtRef.current + AYE_GAP)
-      ayeAtRef.current = at
-      audio.play('aye', { pitch: AYE_PITCH[role] ?? 1, delay: at - now })
-    })
-    socket.on('turn-complete', ({ team }) => {
-      if (team === myTeamRef.current) { setAwaitingConfirmation(false); setConfirmedRoles([]); setLastMove(null) }
-    })
-    socket.on('system-charged', ({ team }) => { if (team === myTeamRef.current) setHasChargedSystem(true) })
-    socket.on('damage-marked', ({ team, finalDamagedSlots, completedCircuits }) => {
-      if (team !== myTeamRef.current) return
-      setHasMarkedDamage(true)
-      if (finalDamagedSlots) setDamagedSlots(finalDamagedSlots)
-      if (completedCircuits?.length) pushLog('info', `Circuit ${completedCircuits.join(', ')} repaired`)
-    })
-
-    socket.on('torpedo-hit', ({ team, damage }) => {
-      setTargeting(null)
-      if (team === myTeamRef.current) { pushToast('hit', `🎯 Direct hit! ${damage} damage`); pushLog('attack', `Torpedo hit for ${damage}`) }
-      else { pushToast('miss', `💥 We were hit! ${damage} damage`); pushLog('attack', `Hit by torpedo for ${damage}`) }
-    })
-    socket.on('torpedo-miss', ({ team }) => {
-      setTargeting(null)
-      if (team === myTeamRef.current) { pushToast('miss', 'Torpedo missed'); pushLog('attack', 'Torpedo missed') }
-    })
-    socket.on('mine-exploded', ({ team, results }) => {
-      const mt = myTeamRef.current
-      const mine = results?.find((r) => r.team === mt)
-      if (mine?.damage > 0) pushToast('miss', `💥 Mine hit us! ${mine.damage} damage`)
-      pushLog('attack', team === mt ? 'Our mine detonated' : 'Enemy mine detonated')
-    })
-    socket.on('mine-placed', () => pushLog('info', 'Mine deployed'))
-    socket.on('hull-damage', ({ team, source }) => {
-      if (team !== myTeamRef.current) return
-      pushToast('miss', `⚠️ Hull damage (${source})`); pushLog('attack', `Hull damage from ${source}`)
-      audio.play('creak')
-      feelBlast('small', false)
-    })
-    // Every torpedo and mine blast, as each boat feels it: the toasts and the log stay on the events above.
-    socket.on('blast-resolved', (blast) => {
-      const fx = blastFeedback(blast, myTeamRef.current, gameStateRef.current?.submarines?.[myTeamRef.current]?.position)
-      if (fx.launch) audio.play('torpedo')
-      audio.play(fx.boom, { vol: fx.vol, delay: fx.delay })
-      if (fx.creak) audio.play('creak', { delay: fx.delay + 0.45 })
-      if (fx.shake) setTimeout(() => feelBlast(fx.shake, fx.flash), fx.delay * 1000)
-    })
-
-    socket.on('drone-result', ({ sector, inSector }) => {
-      setDroneReport({ sector, inSector })
-      pushLog('drone', `Drone: enemy ${inSector ? 'IS' : 'is NOT'} in Sector ${sector}`)
-      audio.play('sonar', { pitch: 0.8 })
-    })
-    socket.on('sonar-request', ({ askingTeam }) => {
-      setSonarOwed({ askingTeam }); pushLog('sonar', 'Enemy pinged us with sonar — respond')
-      audio.play('sonar')
-    })
-    socket.on('sonar-answered', () => setSonarOwed(null)) // server accepted our reply
-    socket.on('sonar-result', ({ facts }) => {
-      audio.play('sonar', { pitch: 0.94 })
-      setSonarReport({ facts })
-      pushLog('sonar', `Sonar reply: ${facts.map((f) => factLabel(f)).join(' OR ')} (one is false)`)
-    })
-
-    socket.on('silence-activated', ({ team }) => {
-      if (team !== myTeamRef.current) { setRadioEvents((prev) => [...prev, { type: 'silence' }]); pushLog('silence', 'Enemy went SILENT') }
-    })
-    socket.on('surface-announced', ({ team, sector }) => {
-      if (team === myTeamRef.current) pushLog('surface', `We surfaced in Sector ${sector}`)
-      else { setEnemySurfacedSector(sector); setRadioEvents((prev) => [...prev, { type: 'surface', sector }]); pushLog('surface', `Enemy surfaced in Sector ${sector}!`) }
-    })
-    socket.on('forced-surface', ({ team, sector }) => {
-      if (team === myTeamRef.current) pushToast('miss', `Trapped — forced to surface (Sector ${sector})`)
-      else { setEnemySurfacedSector(sector); setRadioEvents((prev) => [...prev, { type: 'surface', sector }]) }
-      pushLog('surface', `${team === myTeamRef.current ? 'We were' : 'Enemy'} forced to surface in Sector ${sector}`)
-    })
-    socket.on('resurfaced', ({ team }) => { if (team === enemyTeamOf(myTeamRef.current)) setEnemySurfacedSector(null) })
-
-    // A refusal the server words itself (e.g. another station's job) is shown as it says.
-    socket.on('action-rejected', ({ action, reason, message }) => {
-      if (!QUIET_REJECTS.has(reason)) pushToast('miss', message || `${action}: ${reason.replace(/-/g, ' ')}`)
-    })
-    socket.on('game-over', ({ winner }) => setResult({ winner }))
-    socket.on('automated-roles-updated', ({ team, automatedRoles: roles }) => { if (team === myTeamRef.current) setAutomatedRoles(roles) })
-    socket.on('automation-action', ({ role, action, details }) => {
-      const who = ROLE_HELP[role]?.name || role
-      if (action === 'charged') pushLog('info', `Auto ${who} charged ${SYSTEMS.find((s) => s.id === details.system)?.name || details.system}`)
-      else if (action === 'marked-damage') pushLog('info', `Auto ${who} marked a ${DIR_NAME[details.direction] || details.direction} breakdown`)
-      else pushLog('info', `Auto ${who} ${action.replace(/-/g, ' ')}`)
-    })
-
-    return () => {
-      stopJoining()
-      ;['game-state', 'game-started', 'move-announced', 'play-move-sound', 'role-confirmed', 'turn-complete',
-        'system-charged', 'damage-marked', 'torpedo-hit', 'torpedo-miss', 'mine-exploded', 'mine-placed',
-        'hull-damage', 'blast-resolved', 'drone-result', 'sonar-request', 'sonar-answered', 'sonar-result', 'silence-activated',
-        'surface-announced', 'forced-surface', 'resurfaced', 'action-rejected', 'game-over',
-        'automated-roles-updated', 'automation-action',
-      ].forEach((e) => socket.off(e))
-    }
-  }, [code])
-
-  const loadGame = async () => {
-    try {
-      const res = await api.get(`/games/${code}`)
-      setGame(res.data.game)
-      const me = res.data.players.find((p) => p.user_id === user.id)
-      if (me) {
-        setMyTeam(me.team)
-        const roles = (me.roles || '').split(',').filter((r) => r && r !== 'unassigned')
-        setMyRoles(roles)
-        if (roles.length && !activeRole) setActiveRole(roles[0])
-        socket.team = me.team
-      }
-    } catch (err) { console.error('Failed to load game') }
-  }
-
-  // ---- emit helpers --------------------------------------------------------
-  const emit = (event, payload = {}) => socket.emit(event, { gameCode: code, ...payload })
-  const handleMove = (dir) => emit('captain-move', { direction: dir })
-  const handleAye = (role) => emit('aye-captain', { role })
-  const handleCharge = (system) => emit('charge-system', { system })
-  const handleSurface = () => emit('surface')
-
-  const handleMarkDamage = (slotId) => {
-    if (!myRoles.includes('engineer')) return
-    if (!isLive && (hasMarkedDamage || !lastMove)) return
-    const dir = isLive ? mySub?.breakdownQueue?.[0] : lastMove?.direction
-    const slot = ENGINEER_SLOTS.find((s) => s.id === slotId)
-    if (!slot || slot.dir !== dir || damagedSlots.includes(slotId)) return
-    emit('mark-damage', { slotId })
-  }
-
-  // ---- captain targeting ---------------------------------------------------
-  const torpedoTargets = useMemo(
-    () => (mySub?.position ? reachableWithin(mySub.position, TORPEDO_RANGE) : new Set()),
-    [mySub?.position?.x, mySub?.position?.y],
-  )
-  const mineTargets = useMemo(() => {
-    const set = new Set()
-    if (!mySub?.position) return set
-    for (const dir of DIRS) {
-      const q = stepCell(mySub.position, dir)
-      if (isWater(q.x, q.y) && !(mySub.mines || []).some((m) => m.x === q.x && m.y === q.y)) set.add(cellKey(q.x, q.y))
-    }
-    return set
-  }, [mySub?.position?.x, mySub?.position?.y, mySub?.mines])
-  const silenceTargets = useMemo(() => {
-    const map = new Map()
-    if (!mySub?.position) return map
-    const trail = [...(mySub.path || []), mySub.position]
-    const onTrail = (x, y) => trail.some((c) => c.x === x && c.y === y)
-    map.set(cellKey(mySub.position.x, mySub.position.y), { direction: 'N', distance: 0 })
-    for (const dir of DIRS) {
-      let c = { ...mySub.position }
-      for (let d = 1; d <= SILENCE_RANGE; d++) {
-        c = stepCell(c, dir)
-        if (!isWater(c.x, c.y) || onTrail(c.x, c.y)) break
-        map.set(cellKey(c.x, c.y), { direction: dir, distance: d })
-      }
-    }
-    return map
-  }, [mySub?.position?.x, mySub?.position?.y, mySub?.path])
-
-  const activeTargetCells = targeting === 'torpedo' ? torpedoTargets
-    : targeting === 'mine' ? mineTargets
-    : targeting === 'silence' ? new Set(silenceTargets.keys())
-    : null
-
-  const handleTargetCell = (x, y) => {
-    if (targeting === 'torpedo') { emit('fire-torpedo', { target: { x, y } }); setTargeting(null) }
-    else if (targeting === 'mine') { emit('place-mine', { target: { x, y } }); setTargeting(null) }
-    else if (targeting === 'silence') {
-      const t = silenceTargets.get(cellKey(x, y))
-      if (t) { emit('use-silence', { direction: t.direction, distance: t.distance }); setTargeting(null) }
-    }
-  }
-  const handleSector = (sector) => { if (targeting === 'drone') { emit('launch-drone', { sector }); setTargeting(null) } }
-
-  // Keep the prompt open until the server accepts the reply (it validates one-true-one-false);
-  // if rejected, an action-rejected toast fires and the crew can correct + resend.
-  const submitSonar = () => emit('sonar-response', { facts: sonarForm })
-
-  // ---- radio deduction -----------------------------------------------------
-  const candidates = useMemo(() => computeCandidates(radioEvents), [radioEvents])
-  const ghost = useMemo(() => (ghostStart ? traceFrom(ghostStart, radioEvents) : null), [ghostStart, radioEvents])
-  const annotationSet = useMemo(() => new Set(annotations), [annotations])
-  const handleRadioCell = (x, y) => {
-    if (!isWater(x, y)) return
-    if (radioPlacing === 'ghost') setGhostStart({ x, y })
-    else setAnnotations((prev) => prev.includes(cellKey(x, y)) ? prev.filter((k) => k !== cellKey(x, y)) : [...prev, cellKey(x, y)])
-  }
-
-  const moveSystemPriority = (systemId, direction) => {
-    const idx = systemPriority.indexOf(systemId)
-    if (idx === -1) return
-    const to = direction === 'up' ? idx - 1 : idx + 1
-    if (to < 0 || to >= systemPriority.length) return
-    const next = [...systemPriority]
-    next.splice(idx, 1); next.splice(to, 0, systemId)
-    setSystemPriority(next)
-    emit('set-system-priority', { team: myTeam, systemPriority: next })
-  }
-
-  // ---- derived UI state ----------------------------------------------------
-  const isSystemBlocked = (id) => ENGINEER_SLOTS.some((s) => s.system === id && damagedSlots.includes(s.id))
-  const now = Date.now()
-  const surfaced = !!mySub?.surfaced
-  const surfaceSecs = surfaced && mySub?.surfacedUntil ? Math.max(0, Math.ceil((mySub.surfacedUntil - now) / 1000)) : 0
-  const cooldownSecs = isLive && mySub?.moveCooldownUntil ? Math.max(0, (mySub.moveCooldownUntil - now) / 1000) : 0
-  const moveBlocked = surfaced || (isLive ? cooldownSecs > 0 : awaitingConfirmation)
-  const legalMoves = gameState?.legalMoves || []
-
-  const engineerStatus = useMemo(() => {
-    const status = {}
-    DIRS.forEach((dir) => {
-      const slots = getSlotsForDirection(dir)
-      const available = slots.filter((s) => !damagedSlots.includes(s.id)).length
-      status[dir] = { available, total: slots.length, danger: available <= 1 ? 'high' : available === slots.length ? 'safe' : 'medium' }
-    })
-    return status
-  }, [damagedSlots])
-
-  const nextAutoCharge = useMemo(() => {
-    if (!mySub) return null
-    for (const id of systemPriority) {
-      const sys = SYSTEMS.find((s) => s.id === id)
-      if (sys && (mySub.systems?.[id] || 0) < sys.max) return id
-    }
-    return null
-  }, [mySub, systemPriority])
-
-  const roleActive = (role) => (myRoles.length === 1 ? myRoles.includes(role) : activeRole === role)
-  const roleNeedsAction = (role) => {
-    if (isLive) {
-      if (role === 'first-mate') return (mySub?.chargeTokens || 0) > 0
-      if (role === 'engineer') return (mySub?.breakdownQueue?.length || 0) > 0
-      return false
-    }
-    if (!awaitingConfirmation || confirmedRoles.includes(role)) return false
-    if (role === 'first-mate') return !hasChargedSystem
-    if (role === 'engineer') return !hasMarkedDamage
-    return role === 'radio-operator'
-  }
-  const roleCanConfirm = (role) => {
-    if (isLive || !awaitingConfirmation || confirmedRoles.includes(role)) return false
-    if (role === 'first-mate') return hasChargedSystem
-    if (role === 'engineer') return hasMarkedDamage
-    return role === 'radio-operator'
-  }
-
-  if (!gameState) return <div className="loading">Loading game...</div>
-
-  if (result) {
-    const iWon = result.winner === myTeam
-    return (
-      <div className="game-page">
-        <div className="game-result">
-          <h1>{iWon ? '🏆 Victory!' : '💀 Defeat'}</h1>
-          <p>Team {result.winner?.toUpperCase()} sank the enemy submarine.</p>
-          <button className="aye-btn" onClick={() => navigate('/')}>Back to Home</button>
-        </div>
-      </div>
-    )
-  }
-
-  const health = mySub?.health ?? 0
-
+function Hull({ hull, label, side }) {
   return (
-    <div className="game-page" ref={pageRef}>
-      <div className="hit-flash" ref={flashRef} aria-hidden="true" />
-      <header className="game-header">
-        <div className="team-info">
-          <span className={`team-badge ${myTeam}`}>Team {myTeam?.toUpperCase()}</span>
-          <span className="roles-badge">{myRoles.join(', ')}</span>
-          <span className={`mode-badge ${mode}`}>{isLive ? '⚡ Live' : '🔄 Turn-Based'}</span>
-        </div>
-        <div className="header-right">
-          <div className="health-display">
-            Health: {'❤️'.repeat(Math.max(0, health))}{'🖤'.repeat(Math.max(0, MAX_HEALTH - health))}
-          </div>
-          <button
-            type="button"
-            className={`sound-toggle${soundPrefs.muted ? ' muted' : ''}`}
-            onClick={() => audio.toggleMute()}
-            aria-pressed={soundPrefs.muted}
-            aria-label={soundPrefs.muted ? 'Sound off. Turn sound on' : 'Sound on. Mute'}
-            title={soundPrefs.muted ? 'Sound off' : 'Sound on'}
-          >
-            {soundPrefs.muted ? '🔇' : '🔊'}
-          </button>
-        </div>
-      </header>
-
-      {surfaced && (
-        <div className="surface-banner">🌊 SURFACED — Sector {mySub.surfacedSector} exposed{surfaceSecs > 0 ? ` · diving in ${surfaceSecs}s` : ''}. Systems offline.</div>
-      )}
-
-      {myRoles.length > 1 && (
-        <div className="role-tabs">
-          {myRoles.map((role) => (
-            <button key={role} className={`role-tab ${activeRole === role ? 'active' : ''} ${roleNeedsAction(role) ? 'needs-action' : ''}`} onClick={() => setActiveRole(role)}>
-              {role}{roleNeedsAction(role) && <span className="action-dot">!</span>}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="game-content">
-        {/* ---------------- CAPTAIN ---------------- */}
-        {roleActive('captain') && (
-          <div className="captain-panel">
-            <h2>Captain's Controls <RoleHelp role="captain" /></h2>
-            {targeting && (
-              <div className="targeting-hint" role="status">
-                <span>
-                  {targeting === 'torpedo' && '🎯 Select a target cell (within range).'}
-                  {targeting === 'mine' && '◆ Select an adjacent cell to drop a mine.'}
-                  {targeting === 'silence' && '🤫 Select a cell to move to silently (0–4 straight).'}
-                  {targeting === 'drone' && '📡 Click a sector (any cell in it) to scan.'}
-                  {' '}<span className="targeting-keys">On the keyboard: arrow keys move, Enter picks, Esc cancels.</span>
-                </span>
-                <button className="cancel-target" onClick={() => setTargeting(null)}>Cancel</button>
-              </div>
-            )}
-            <div className="captain-layout">
-              <div className="captain-left">
-                <MapBoard
-                  ariaLabel="Captain's map"
-                  submarine={mySub}
-                  mines={mySub?.mines || []}
-                  overlay={targeting === 'drone' ? 'drone-sector' : targeting || 'none'}
-                  legalCells={activeTargetCells}
-                  onCellClick={handleTargetCell}
-                  onSectorClick={handleSector}
-                  onCancel={() => setTargeting(null)}
-                />
-                <div className="movement-controls">
-                  <button onClick={() => handleMove('N')} disabled={moveBlocked || !legalMoves.includes('N')}>⬆️ N</button>
-                  <div className="horizontal-controls">
-                    <button onClick={() => handleMove('W')} disabled={moveBlocked || !legalMoves.includes('W')}>⬅️ W</button>
-                    <button onClick={() => handleMove('E')} disabled={moveBlocked || !legalMoves.includes('E')}>E ➡️</button>
-                  </div>
-                  <button onClick={() => handleMove('S')} disabled={moveBlocked || !legalMoves.includes('S')}>⬇️ S</button>
-                  {isLive && cooldownSecs > 0 && <div className="cooldown-timer">reload {cooldownSecs.toFixed(1)}s</div>}
-                  {!surfaced && legalMoves.length === 0 && <div className="trapped-hint">Trapped! You must surface.</div>}
-                </div>
-              </div>
-
-              <div className="captain-right">
-                {!isLive && awaitingConfirmation && (
-                  <div className="waiting-confirmation">
-                    <p>Waiting for crew…</p>
-                    <div className="confirmed-roles">{confirmedRoles.map((r) => <span key={r} className="confirmed">✓ {r}</span>)}</div>
-                  </div>
-                )}
-
-                <div className="systems-rail">
-                  <h3>Systems</h3>
-                  {SYSTEMS.map((sys) => {
-                    const val = mySub?.systems?.[sys.id] || 0
-                    const ready = val >= sys.max && !isSystemBlocked(sys.id) && !surfaced
-                    return (
-                      <div key={sys.id} className={`system-control ${ready ? 'ready' : ''} ${isSystemBlocked(sys.id) ? 'blocked' : ''}`}>
-                        <span className="system-label">{sys.icon} {sys.name}</span>
-                        <div className="charge-bar">
-                          {Array(sys.max).fill(0).map((_, i) => <span key={i} className={`charge-pip ${i < val ? 'filled' : ''}`} />)}
-                        </div>
-                        {ready && sys.id !== 'sonar' && (
-                          <button className={`activate-btn ${targeting === sys.id ? 'active' : ''}`} onClick={() => setTargeting((t) => t === sys.id ? null : sys.id)}>
-                            {targeting === sys.id ? 'Cancel' : 'USE'}
-                          </button>
-                        )}
-                        {ready && sys.id === 'sonar' && (
-                          <button className="activate-btn" onClick={() => emit('use-sonar')}>PING</button>
-                        )}
-                      </div>
-                    )
-                  })}
-                  <div className="system-control surface-control">
-                    <span className="system-label">🌊 Surface</span>
-                    <button className="activate-btn danger" onClick={handleSurface} disabled={surfaced}>SURFACE</button>
-                  </div>
-                </div>
-
-                {(droneReport || sonarReport || (mySub?.mines?.length > 0)) && (
-                  <div className="captain-reports">
-                    {droneReport && (
-                      <div className="drone-report">
-                        <h4>📡 Drone</h4>
-                        <span className={`drone-answer ${droneReport.inSector ? 'yes' : 'no'}`}>Enemy {droneReport.inSector ? 'IS' : 'is NOT'} in Sector {droneReport.sector}</span>
-                      </div>
-                    )}
-                    {sonarReport && (
-                      <div className="sonar-report">
-                        <h4>🔊 Sonar (one is a lie)</h4>
-                        {sonarReport.facts.map((f, i) => <div key={i} className="sonar-fact">{factLabel(f)}</div>)}
-                      </div>
-                    )}
-                    {mySub?.mines?.length > 0 && (
-                      <div className="mine-list">
-                        <h4>💥 Deployed mines</h4>
-                        {mySub.mines.map((m) => (
-                          <div key={cellKey(m.x, m.y)} className="mine-item">
-                            <span>({m.x}, {m.y})</span>
-                            <button className="detonate-btn" onClick={() => emit('detonate-mine', { target: { x: m.x, y: m.y } })} disabled={surfaced}>Detonate</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {automatedRoles.length > 0 && (
-                  <div className="automation-panel">
-                    <h3>Automation Control</h3>
-                    {automatedRoles.includes('first-mate') && (
-                      <div className="auto-section">
-                        <h4>First Mate Priority</h4>
-                        <div className="priority-list">
-                          {systemPriority.map((sysId, idx) => {
-                            const sys = SYSTEMS.find((s) => s.id === sysId)
-                            if (!sys) return null
-                            const isFull = (mySub?.systems?.[sysId] || 0) >= sys.max
-                            return (
-                              <div key={sysId} className={`priority-item ${isFull ? 'full' : ''} ${sysId === nextAutoCharge ? 'next' : ''}`}>
-                                <span className="priority-rank">{idx + 1}</span>
-                                <span className="priority-system">{sys.icon} {sys.name}</span>
-                                <span className="priority-status">{mySub?.systems?.[sysId] || 0}/{sys.max}</span>
-                                <div className="priority-controls">
-                                  <button onClick={() => moveSystemPriority(sysId, 'up')} disabled={idx === 0}>▲</button>
-                                  <button onClick={() => moveSystemPriority(sysId, 'down')} disabled={idx === systemPriority.length - 1}>▼</button>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {automatedRoles.includes('engineer') && (
-                      <div className="auto-section">
-                        <h4>Engineering Status</h4>
-                        <div className="direction-status">
-                          {Object.entries(engineerStatus).map(([dir, s]) => (
-                            <div key={dir} className={`direction-item ${s.danger}`}>
-                              <span className="direction-label">{dir}</span>
-                              <span className="danger-label">{s.available}/{s.total}{s.danger === 'high' ? ' ⚠️' : ''}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {automatedRoles.includes('radio-operator') && <div className="auto-section"><h4>Radio Operator</h4><p className="auto-status">Auto-confirming moves</p></div>}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ---------------- FIRST MATE ---------------- */}
-        {roleActive('first-mate') && (
-          <div className="first-mate-panel">
-            <h2>First Mate's Station <RoleHelp role="first-mate" /></h2>
-            <p className="station-mission">Charge the systems your Captain wants to use — a system is ready to fire only when its bar is full.</p>
-            {isLive ? (
-              <div className="token-tray">
-                <span>Charge tokens:</span>
-                {Array(Math.max(0, mySub?.chargeTokens || 0)).fill(0).map((_, i) => <span key={i} className="token-pip" />)}
-                <strong>{mySub?.chargeTokens || 0}</strong>
-              </div>
-            ) : !awaitingConfirmation ? (
-              <div className="waiting-captain"><p>Waiting for Captain to move…</p></div>
-            ) : (
-              <div className="move-alert">
-                <p>Captain moved: <strong>{lastMove?.direction}</strong></p>
-                {!hasChargedSystem ? <p className="action-required">Charge a system!</p> : <p className="action-done">✓ System charged</p>}
-              </div>
-            )}
-            {(isLive || awaitingConfirmation) && (
-              <div className="systems-grid">
-                {SYSTEMS.map((sys) => {
-                  const val = mySub?.systems?.[sys.id] || 0
-                  const full = val >= sys.max
-                  const disabled = full || (isLive ? (mySub?.chargeTokens || 0) <= 0 : hasChargedSystem)
-                  return (
-                    <button key={sys.id} className={`system-btn ${full ? 'full' : ''} ${disabled ? 'disabled' : ''} ${full ? 'ready' : ''}`} onClick={() => handleCharge(sys.id)} disabled={disabled}>
-                      <span className="system-icon">{sys.icon}</span>
-                      <span className="system-name">{sys.name}</span>
-                      <div className="charge-bar">{Array(sys.max).fill(0).map((_, i) => <span key={i} className={`charge-pip ${i < val ? 'filled' : ''}`} />)}</div>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            {roleCanConfirm('first-mate') && <button className="aye-btn" onClick={() => handleAye('first-mate')}>⚓ Aye Captain!</button>}
-          </div>
-        )}
-
-        {/* ---------------- ENGINEER ---------------- */}
-        {roleActive('engineer') && (() => {
-          const activeDir = isLive ? mySub?.breakdownQueue?.[0] : (awaitingConfirmation ? lastMove?.direction : null)
-          const pending = isLive ? (mySub?.breakdownQueue?.length || 0) : (awaitingConfirmation && !hasMarkedDamage ? 1 : 0)
-          return (
-          <div className="engineer-panel">
-            <h2>Engineer's Station <RoleHelp role="engineer" /></h2>
-            <p className="station-mission">Every move the Captain makes breaks a reactor node in that direction — you choose which system takes the hit. Complete a colour to repair a whole circuit.</p>
-
-            <div className={`reactor-guidance ${activeDir ? 'go' : 'idle'}`}>
-              {activeDir
-                ? <>Captain moved <strong>{DIR_ARROW[activeDir]} {DIR_NAME[activeDir]}</strong> — take one <strong>{DIR_NAME[activeDir]}</strong> node offline.{isLive && pending > 1 ? ` (${pending} queued)` : ''}</>
-                : (isLive ? 'Reactor stable — waiting for the next move…' : 'Waiting for the Captain to move…')}
-            </div>
-
-            <div className="reactor">
-              {DIRS.map((dir) => {
-                const isActive = activeDir === dir
-                const st = engineerStatus[dir]
-                const filled = st.total - st.available
-                const nearFull = st.available <= 1
-                return (
-                  <div key={dir} className={`reactor-group ${isActive ? 'active' : ''} ${nearFull ? 'danger' : ''}`}>
-                    <div className="reactor-group-head">
-                      <span className="dir-arrow">{DIR_ARROW[dir]} {DIR_NAME[dir]}</span>
-                      <span className="dir-fill">{filled}/{st.total}{nearFull ? ' ⚠️' : ''}</span>
-                    </div>
-                    <div className="reactor-nodes">
-                      {getSlotsForDirection(dir).map((slot) => {
-                        const isDamaged = damagedSlots.includes(slot.id)
-                        const sys = SYSTEMS.find((s) => s.id === slot.system)
-                        return (
-                          <button key={slot.id}
-                            className={`reactor-node circuit-${slot.circuit} ${isDamaged ? 'offline' : ''}`}
-                            onClick={() => handleMarkDamage(slot.id)}
-                            disabled={(isLive ? false : hasMarkedDamage) || isDamaged || !isActive}
-                            title={`${sys?.name} — ${CIRCUIT_NAME[slot.circuit]} circuit`}>
-                            <span className="node-icon">{sys?.icon}</span>
-                            <span className="node-name">{sys?.name}</span>
-                            <span className="node-state">{isDamaged ? 'OFFLINE' : (isActive ? 'break?' : '')}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                    {nearFull && st.available > 0 && (
-                      <div className="reactor-warn">One more {DIR_NAME[dir]} move with nothing left to break → reactor overload (1 hull).</div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="circuit-progress">
-              <span className="cp-label">Repair circuits:</span>
-              {Object.keys(CIRCUITS).map((c) => {
-                const done = CIRCUITS[c].filter((id) => damagedSlots.includes(id)).length
-                return <span key={c} className={`cp-chip circuit-${c} ${done === 4 ? 'ready' : ''}`}>{CIRCUIT_NAME[c]} {done}/4</span>
-              })}
-              <span className="cp-hint">Break all 4 of a colour and that circuit repairs itself.</span>
-            </div>
-
-            <div className="reactor-systems">
-              {SYSTEMS.map((sys) => (
-                <span key={sys.id} className={`sys-chip ${isSystemBlocked(sys.id) ? 'offline' : 'online'}`}>
-                  {sys.icon} {sys.name} {isSystemBlocked(sys.id) ? '✗ offline' : '✓'}
-                </span>
-              ))}
-            </div>
-
-            {roleCanConfirm('engineer') && <button className="aye-btn" onClick={() => handleAye('engineer')}>⚓ Aye Captain!</button>}
-          </div>
-          )
-        })()}
-
-        {/* ---------------- RADIO OPERATOR ---------------- */}
-        {roleActive('radio-operator') && (() => {
-          const n = candidates.size
-          const only = n === 1 ? candidates.values().next().value.split(',').map(Number) : null
-          const heardMoves = radioEvents.filter((e) => e.type === 'move').length
-          return (
-          <div className="radio-operator-panel">
-            <h2>Radio Operator's Station <RoleHelp role="radio-operator" /></h2>
-            <p className="station-mission">🎯 Find the enemy sub. You hear every move they make — the green cells are where they could be. Narrow it down, then call the shot for your Captain.</p>
-
-            <div className={`enemy-fix ${n <= 3 ? 'pinned' : ''}`}>
-              {heardMoves === 0 && !enemySurfacedSector
-                ? <>Listening… the enemy hasn’t moved yet. The whole ocean (<strong>{n}</strong> cells) is in play.</>
-                : only
-                  ? <>🎯 Enemy pinned at <strong>({only[0]}, {only[1]})</strong> — call it out for your Captain to fire!</>
-                  : <>Enemy could be in <strong>{n}</strong> cell{n === 1 ? '' : 's'}{n <= 3 ? ' — almost there!' : ''}{enemySurfacedSector ? ` · surfaced in Sector ${enemySurfacedSector}` : ''}.</>}
-            </div>
-
-            <MapBoard
-              small
-              ariaLabel="Radio map"
-              overlay="radio"
-              onCellClick={handleRadioCell}
-              candidates={candidates}
-              ghostStart={ghostStart}
-              ghostPath={ghost?.path || []}
-              annotations={annotationSet}
-              enemySurfacedSector={enemySurfacedSector}
-            />
-            <div className="radio-legend">
-              <span className="lg lg-candidate">🟩 possible enemy location</span>
-              {ghostStart && <span className="lg lg-ghost">🟨 your traced hunch</span>}
-              {enemySurfacedSector && <span className="lg lg-sector">🟥 surfaced sector</span>}
-            </div>
-
-            <div className="radio-evidence">
-              <h4>What you’ve heard</h4>
-              <div className="path-display">
-                {radioEvents.length === 0 ? <span className="no-path">Nothing yet — listening…</span> :
-                  radioEvents.map((e, i) => (
-                    <span key={i} className={`path-step ${e.type}`} title={e.type === 'silence' ? 'went silent' : e.type === 'surface' ? `surfaced in sector ${e.sector}` : `moved ${DIR_NAME[e.dir]}`}>
-                      {e.type === 'move' ? `${DIR_ARROW[e.dir]}` : e.type === 'silence' ? '🤫' : `⤒${e.sector}`}
-                    </span>
-                  ))}
-              </div>
-            </div>
-
-            <details className="radio-hunch">
-              <summary>Test a hunch (optional)</summary>
-              <div className="radio-mode-toggle">
-                <button className={radioPlacing === 'ghost' ? 'active' : ''} onClick={() => setRadioPlacing('ghost')}>Guess start</button>
-                <button className={radioPlacing === 'annotate' ? 'active' : ''} onClick={() => setRadioPlacing('annotate')}>Mark cells</button>
-                <button onClick={() => { setGhostStart(null); setAnnotations([]) }}>Clear</button>
-              </div>
-              <p className="hunch-hint">Click a cell on the map (or move to it with the arrow keys and press Enter) to guess where the enemy <em>started</em>; it traces their path from there. Impossible guesses (into land, off-grid, or crossing themselves) are flagged.</p>
-              {ghost && (
-                <div className={`ghost-status ${ghost.valid ? 'valid' : 'invalid'}`}>
-                  {ghost.valid ? (ghost.uncertain ? 'Valid so far (enemy went silent — path uncertain from here)' : `Valid — from there the enemy would now be at (${ghost.path.at(-1)?.x}, ${ghost.path.at(-1)?.y})`) : 'Impossible — that path hits land, the edge, or crosses itself'}
-                </div>
-              )}
-            </details>
-          </div>
-          )
-        })()}
-      </div>
-
-      {/* Sonar answer prompt (any crew member can answer for the enemy ping) */}
-      {sonarOwed && myRoles.length > 0 && (
-        <div className="sonar-answer-modal">
-          <div className="sonar-answer-card">
-            <h3>🔊 Enemy pinged us — send a reply</h3>
-            <p>Give two facts about our position. Exactly one must be TRUE and one FALSE (they won't know which).</p>
-            {[0, 1].map((i) => (
-              <div key={i} className="sonar-fact-input">
-                <select value={sonarForm[i].type} onChange={(e) => setSonarForm((f) => f.map((x, j) => j === i ? { ...x, type: e.target.value } : x))}>
-                  <option value="row">Row (y)</option>
-                  <option value="col">Column (x)</option>
-                  <option value="sector">Sector</option>
-                </select>
-                <input type="number" value={sonarForm[i].value} onChange={(e) => setSonarForm((f) => f.map((x, j) => j === i ? { ...x, value: Number(e.target.value) } : x))} />
-              </div>
-            ))}
-            <p className="sonar-hint">Our position: row {mySub?.position?.y}, col {mySub?.position?.x}, sector {mySub?.position && sectorOf(mySub.position.x, mySub.position.y)}</p>
-            <button className="aye-btn" onClick={submitSonar}>Send reply</button>
-          </div>
-        </div>
-      )}
-
-      <ToastHost toasts={toasts} />
-      <EventLog entries={eventLog} />
+    <div className={`hull-read ${side}`} aria-label={`${label}: hull ${hull} of ${HULL_MAX}`}>
+      <span className="hull-label">{label}</span>
+      <span className="hull-pips">{Array.from({ length: HULL_MAX }, (_, i) => <i key={i} className={i < hull ? 'on' : ''} />)}</span>
     </div>
   )
 }
 
-const enemyTeamOf = (team) => (team === 'alpha' ? 'bravo' : 'alpha')
-function factLabel(f) {
-  if (f.type === 'row') return `Row ${f.value}`
-  if (f.type === 'col') return `Column ${f.value}`
-  if (f.type === 'sector') return `Sector ${f.value}`
-  return JSON.stringify(f)
+function SoundControls() {
+  const audio = getAudio()
+  const prefs = useSyncExternalStore(audio.subscribe, audio.snapshot, audio.snapshot)
+  return (
+    <div className="sound-controls">
+      <button type="button" className={`sound-toggle ${prefs.muted ? 'muted' : ''}`} onClick={() => audio.toggleMute()} aria-pressed={prefs.muted} aria-label={prefs.muted ? 'Sound off. Turn sound on' : 'Sound on. Mute'}>
+        {prefs.muted ? '🔇' : '🔊'}
+      </button>
+      <label className="music-level" title="Music">
+        <span>♪</span>
+        <input type="range" min="0" max="1" step="0.05" value={prefs.music} onChange={(e) => audio.setPrefs({ music: Number(e.target.value) })} aria-label="Music level" />
+      </label>
+    </div>
+  )
+}
+
+function Game({ user }) {
+  const { code } = useParams()
+  const navigate = useNavigate()
+  const { game, players, seat, view, contacts, over, refusal, send, onFx } = useMatch(code, user)
+  const audio = getAudio()
+  useScene('game')
+  useEffect(() => { loadArt() }, [])
+
+  const team = view?.team || seat?.team
+  const myRoles = useMemo(() => seat?.roles || [], [seat])
+  const [active, setActive] = useState(null)
+  const [aim, setAim] = useState(null)
+  const [guideId, setGuideId] = useState(null)
+  const [effects, setEffects] = useState([])
+  const [log, setLog] = useState([])
+  const [speaking, setSpeaking] = useState(null) // { station, caption }
+  const [alarmUntil, setAlarmUntil] = useState(0)
+  const [toast, setToast] = useState(null)
+  const [stats, setStats] = useState({ shots: 0, landed: 0, taken: 0 })
+  const memory = useRef(newMemory())
+  const pageRef = useRef(null)
+  const flashRef = useRef(null)
+  const lastHitAt = useRef(0)
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const logId = useRef(0)
+
+  useEffect(() => { if (!active && myRoles.length) setActive(myRoles[0]) }, [myRoles, active])
+
+  // a line spoken: the face that says it talks, with the words under it
+  const speak = useCallback((name) => {
+    if (!name) return
+    const station = speakerOf(name)
+    const said = audio.say(name)
+    const caption = LINES[name]
+    const startIn = said ? said.startIn : 0
+    const seconds = said ? said.seconds : 1.8
+    setTimeout(() => setSpeaking({ station, caption }), startIn * 1000)
+    setTimeout(() => setSpeaking((s) => (s && s.caption === caption ? null : s)), (startIn + seconds + 0.3) * 1000)
+  }, [audio])
+
+  const feel = useCallback((shake, flash) => {
+    if (reduceMotion()) return
+    const s = SHAKES[shake]
+    if (s && pageRef.current?.animate) {
+      const p = s.px
+      pageRef.current.animate([
+        { transform: 'translate(0,0)' }, { transform: `translate(${-p}px,${p * 0.4}px)` }, { transform: `translate(${p * 0.8}px,${-p * 0.5}px)` },
+        { transform: `translate(${-p * 0.5}px,${p * 0.3}px)` }, { transform: `translate(${p * 0.3}px,0)` }, { transform: 'translate(0,0)' },
+      ], { duration: s.ms, easing: 'ease-out' })
+    }
+    if (flash) flashRef.current?.animate?.([{ opacity: 0.65 }, { opacity: 0 }], { duration: 700, easing: 'ease-out' })
+  }, [])
+
+  // every event from the server: sounds, a line, something on the chart, the log
+  useEffect(() => onFx((ev) => {
+    const v = viewRef.current
+    const cue = react(ev, { team, boat: v?.boat, now: Date.now(), memory: memory.current })
+    for (const [name, opts] of cue.sounds) audio.play(name, opts)
+    if (cue.say) speak(cue.say)
+    if (cue.alarm) setAlarmUntil(Date.now() + cue.alarm * 1000)
+    if (cue.shake || cue.flash) feel(cue.shake, cue.flash)
+    if (cue.visual?.kind === 'blast') setEffects((list) => [...list.filter((e) => performance.now() - e.at < 3000), { ...cue.visual, at: performance.now() }])
+    if (ev.type === 'hit') { lastHitAt.current = Date.now(); setStats((s) => (ev.team === team ? { ...s, taken: s.taken + ev.damage } : ev.cause === 'torpedo' ? { ...s, landed: s.landed + ev.damage } : s)) }
+    if (ev.type === 'fired') setStats((s) => ({ ...s, shots: s.shots + 1 }))
+    if (ev.type === 'fired' || ev.type === 'torpedo-spent') setAim(null)
+    if (cue.log) {
+      const id = ++logId.current
+      setLog((l) => [...l.slice(-40), { id, ...cue.log, t: v?.t ?? 0 }])
+    }
+  }), [onFx, team, audio, speak, feel])
+
+  // the server said no: a short note, unless it is only pacing
+  useEffect(() => {
+    if (!refusal || ['too-soon', 'not-charged', 'tube-busy'].includes(refusal.reason)) return
+    setToast(refusal.message || `${refusal.action}: ${String(refusal.reason).replace(/-/g, ' ')}`)
+    audio.play('ui.beep', { pitch: 0.6 })
+    const id = setTimeout(() => setToast(null), 3200)
+    return () => clearTimeout(id)
+  }, [refusal, audio])
+
+  // the dive, once, as the match starts
+  const dived = useRef(false)
+  useEffect(() => {
+    if (!view || dived.current) return
+    dived.current = true
+    if (view.t < 6 && !view.over) {
+      audio.play('klaxon')
+      audio.play('dive', { delay: 0.6 })
+      setTimeout(() => speak('voice.deck.dive'), 400)
+    }
+  }, [view, audio, speak])
+
+  // the music follows the hunt; a running torpedo and a fire or flood have their own loops
+  useEffect(() => {
+    if (!view) return
+    const now = Date.now()
+    let x = 0.12 + Math.min(0.25, (view.t / MATCH_SECONDS) * 0.3)
+    if (view.torpedoes.length) x = Math.max(x, 0.7)
+    if (now - lastHitAt.current < 15000) x = Math.max(x, 0.8)
+    if (contacts.some((c) => c.near && view.t - c.t < 10)) x = Math.max(x, 0.5)
+    if (alarmUntil > now) x = 1
+    if (view.boat.hull <= 2 || view.enemy.hull <= 2) x = Math.min(1, x + 0.2)
+    audio.tension(over ? 0 : x)
+    const loop = (name, on, level, bus = 'sfx') => (on ? audio.startLoop(name, bus, level) : audio.stopLoop(name, 0.8))
+    loop('torpedo.run', view.torpedoes.length > 0 && !over, 0.35)
+    loop('fire', view.boat.faults.some((f) => f.kind === 'fire') && !over, 0.45, 'amb')
+    loop('flood', view.boat.faults.some((f) => f.kind === 'flood') && !over, 0.5, 'amb')
+  }, [view, contacts, alarmUntil, over, audio])
+  useEffect(() => () => { for (const n of ['torpedo.run', 'fire', 'flood']) audio.stopLoop(n, 0.5) }, [audio])
+
+  // the end
+  const ended = useRef(false)
+  useEffect(() => {
+    if (!over || !team || ended.current) return
+    ended.current = true
+    const e = ending(over.winner ?? null, team)
+    setTimeout(() => { audio.play(e.sound); if (e.say) speak(e.say) }, 900)
+  }, [over, team, audio, speak])
+
+  // a click on the chart does the active station's job
+  const onCell = (cell) => {
+    if (!view) return
+    if (active === 'listener') send('mark', { cell })
+    else if (active === 'weapons') {
+      if (guideId && view.torpedoes.some((tp) => tp.id === guideId)) send('guide', { id: guideId, target: cell })
+      else { setAim(cell); audio.play('ui.beep', { vol: 0.5 }) }
+    } else if (active === 'helm') {
+      if (cell.x !== view.boat.x || cell.y !== view.boat.y) send('helm', { heading: headingFor(bearing(view.boat, cell)) })
+    }
+  }
+  useEffect(() => { if (guideId && view && !view.torpedoes.some((tp) => tp.id === guideId)) setGuideId(null) }, [view, guideId])
+
+  // station keys 1-4 switch between the stations this player holds
+  useEffect(() => {
+    const onKey = (e) => {
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '')) return
+      const s = STATIONS.find((x) => STATION_INFO[x].key === e.key)
+      if (s && myRoles.includes(s)) { setActive(s); audio.play('ui.beep', { vol: 0.5 }) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [myRoles, audio])
+
+  const needs = useMemo(() => {
+    if (!view) return {}
+    const b = view.boat
+    const map = chart(view.mapId)
+    const threat = contacts.some((c) => (c.kind === 'torpedo' || c.kind === 'launch') && view.t - c.t < 6)
+    return {
+      helm: threat || b.faults.some((f) => f.kind === 'rudder') || (b.ordered > 0 && !map.isWater(b.x + [0, 1, 1, 1, 0, -1, -1, -1][b.heading], b.y + [-1, -1, 0, 1, 1, 1, 0, -1][b.heading])),
+      listener: contacts.some((c) => view.t - c.t < 4 && c.kind !== 'bio') || (b.pingCharge >= 1 && !b.marker),
+      weapons: b.tubes.some((t) => t.state === 'empty') && !b.tubes.some((t) => t.state === 'loading') || (b.tubes.some((t) => t.state === 'ready') && Boolean(b.marker)),
+      chief: b.faults.length > 0 || b.heat >= 75 || Boolean(b.boost) || b.scram > 0,
+    }
+  }, [view, contacts])
+
+  if (!seat || (!view && !over)) {
+    return (
+      <div className="game-page waiting">
+        <div className="sonar-loader" aria-hidden="true" />
+        <p>{seat && !seat.team ? 'You have no seat on this boat.' : 'Coming aboard…'}</p>
+        {seat && !seat.team && <button onClick={() => navigate('/')}>Back to the deck</button>}
+      </div>
+    )
+  }
+
+  const b = view.boat
+  const left = Math.max(0, MATCH_SECONDS - view.t)
+  const boatName = TEAM_INFO[team]?.boat || 'Our boat'
+  const enemyName = TEAM_INFO[enemyOf(team)]?.boat || 'Enemy'
+  const alarm = alarmUntil > Date.now()
+  const Panel = active ? PANELS[active] : null
+  const callFrom = myRoles.includes(active) ? active : myRoles[0]
+  const end = over ? ending(over.winner ?? null, team) : null
+  const flood = b.faults.some((f) => f.kind === 'flood')
+
+  const playAgain = async () => {
+    try {
+      const res = await api.post('/games/create', { gameMode: game?.game_mode?.startsWith('vs-ai') ? game.game_mode : 'vs-ai', sameRoom: false })
+      navigate(`/lobby/${res.data.game.code}`)
+    } catch (err) {
+      setToast(err.response?.data?.error || 'Could not make a new game')
+    }
+  }
+
+  return (
+    <div className={`game-page control-room team-${team} ${alarm ? 'alarm' : ''} ${b.scram > 0 ? 'blackout' : ''} ${b.hull <= 2 ? 'damaged' : ''}`} ref={pageRef}>
+      <div className="hit-flash" ref={flashRef} aria-hidden="true" />
+      <div className="alarm-lights" aria-hidden="true"><span /><span /></div>
+      {flood && <div className="flood-water" style={{ '--level': Math.min(1, b.floodTime / 20) }} aria-hidden="true" />}
+      {b.hull <= 2 && <div className="cracks" aria-hidden="true" />}
+
+      <header className="room-header">
+        <div className="boat-name">
+          <span className="boat-flag" />
+          <span>{boatName}</span>
+          <span className="map-name">{chart(view.mapId).name}</span>
+        </div>
+        <Hull hull={b.hull} label={boatName} side="ours" />
+        <div className={`match-clock ${left <= 30 ? 'low' : ''}`} aria-label="Time left">{clockText(left)}</div>
+        <Hull hull={view.enemy.hull} label={`${enemyName}${view.vsAi ? ' (AI)' : ''}`} side="theirs" />
+        <SoundControls />
+      </header>
+
+      <div className="room">
+        <section className="console-column">
+          <nav className="station-tabs" aria-label="Your stations">
+            {STATIONS.map((s) => (
+              <button
+                key={s}
+                className={`station-tab ${active === s ? 'on' : ''} ${needs[s] ? 'needs' : ''}`}
+                disabled={!myRoles.includes(s)}
+                onClick={() => { setActive(s); audio.play('ui.beep', { vol: 0.5 }) }}
+                title={myRoles.includes(s) ? STATION_INFO[s].job : `${STATION_INFO[s].room}: ${view.crew[s] === 'auto' ? 'the auto-crew' : 'a shipmate'} has it`}
+              >
+                <span className="tab-key">{STATION_INFO[s].key}</span>{STATION_INFO[s].name}
+              </button>
+            ))}
+          </nav>
+          <div className="console-screen">
+            {Panel ? (
+              <>
+                <h2 className="console-title">{STATION_INFO[active].room}</h2>
+                <Panel view={view} contacts={contacts} send={send} aim={aim} setAim={setAim} guideId={guideId} setGuideId={setGuideId} />
+              </>
+            ) : (
+              <p className="hint">You hold no station on this boat: watch the chart while the crew fights it.</p>
+            )}
+          </div>
+          {callFrom && (
+            <div className="calls" role="group" aria-label="Crew calls">
+              {Object.keys(CALLS).map((c) => (
+                <button key={c} className="call-btn" onClick={() => send('call', { station: callFrom, call: c })}>{CALLS[c].replace(/!|\./g, '')}</button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="chart-table">
+          <ChartCanvas
+            view={view}
+            contacts={contacts}
+            team={team}
+            mode={active === 'listener' ? 'mark' : active === 'weapons' ? (guideId ? 'guide' : 'aim') : active === 'helm' ? 'steer' : 'look'}
+            onCell={onCell}
+            aim={aim}
+            guideId={guideId}
+            effects={effects}
+          />
+          <div className="chart-legend">
+            <span className="lg hull">machinery</span><span className="lg bio">whale</span><span className="lg torp">torpedo / launch</span><span className="lg vent">vent field: hides a slow boat</span>
+          </div>
+        </section>
+
+        <aside className="crew-column">
+          <CrewPanel view={view} players={players.filter((p) => p.team === team)} myRoles={myRoles} speaking={speaking?.station} caption={speaking?.caption} needs={needs} onPick={setActive} active={active} />
+          <div className="log" aria-live="polite">
+            {log.slice(-12).reverse().map((l) => <div key={l.id} className={`log-row k-${l.kind}`}><span>{clockText(MATCH_SECONDS - l.t)}</span> {l.text}</div>)}
+          </div>
+        </aside>
+      </div>
+
+      {toast && <div className="room-toast" role="status">{toast}</div>}
+      {view.t < 3.2 && !over && <div className="dive-overlay" aria-hidden="true"><div className="dive-gauge" /><h1>DIVE! DIVE!</h1></div>}
+
+      {end && (
+        <div className={`ending ${over.winner === team ? 'won' : 'lost'}`}>
+          <div className="ending-card">
+            <h1>{end.title}</h1>
+            <p>{end.line}</p>
+            <dl className="ending-stats">
+              <div><dt>Torpedoes fired</dt><dd>{stats.shots}</dd></div>
+              <div><dt>Damage dealt</dt><dd>{stats.landed}</dd></div>
+              <div><dt>Damage taken</dt><dd>{stats.taken}</dd></div>
+              <div><dt>Time</dt><dd>{clockText(over.t ?? view.t)}</dd></div>
+            </dl>
+            <div className="ending-actions">
+              <button className="primary" onClick={playAgain}>Hunt again</button>
+              <button onClick={() => navigate('/')}>Back to the deck</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default Game

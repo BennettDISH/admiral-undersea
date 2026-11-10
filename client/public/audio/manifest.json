@@ -48,6 +48,270 @@
         "https://media.bennettdishmanmedia.com/sounds/admiral-aye/admiral-aye-3-9ae175f5.mp3"
       ],
       "gain": 0.4
+    },
+    "voice.helm.full": {
+      "src": [
+        "/audio/voice/helm-full.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.helm.half": {
+      "src": [
+        "/audio/voice/helm-half.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.helm.slow": {
+      "src": [
+        "/audio/voice/helm-slow.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.helm.stop": {
+      "src": [
+        "/audio/voice/helm-stop.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.helm.rocks": {
+      "src": [
+        "/audio/voice/helm-rocks.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.helm.scrape": {
+      "src": [
+        "/audio/voice/helm-scrape.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.helm.rudder": {
+      "src": [
+        "/audio/voice/helm-rudder.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.contact": {
+      "src": [
+        "/audio/voice/listener-contact.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.bio": {
+      "src": [
+        "/audio/voice/listener-bio.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.torpedo": {
+      "src": [
+        "/audio/voice/listener-torpedo.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.launch": {
+      "src": [
+        "/audio/voice/listener-launch.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.pinged": {
+      "src": [
+        "/audio/voice/listener-pinged.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.ping": {
+      "src": [
+        "/audio/voice/listener-ping.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.ping-hit": {
+      "src": [
+        "/audio/voice/listener-ping-hit.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.ping-miss": {
+      "src": [
+        "/audio/voice/listener-ping-miss.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.listener.mark": {
+      "src": [
+        "/audio/voice/listener-mark.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.loaded-1": {
+      "src": [
+        "/audio/voice/weapons-loaded-1.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.loaded-2": {
+      "src": [
+        "/audio/voice/weapons-loaded-2.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.fire": {
+      "src": [
+        "/audio/voice/weapons-fire.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.decoy": {
+      "src": [
+        "/audio/voice/weapons-decoy.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.hit": {
+      "src": [
+        "/audio/voice/weapons-hit.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.miss": {
+      "src": [
+        "/audio/voice/weapons-miss.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.weapons.flood": {
+      "src": [
+        "/audio/voice/weapons-flood.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.chief.power": {
+      "src": [
+        "/audio/voice/chief-power.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.chief.fire": {
+      "src": [
+        "/audio/voice/chief-fire.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.chief.repaired": {
+      "src": [
+        "/audio/voice/chief-repaired.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.chief.hot": {
+      "src": [
+        "/audio/voice/chief-hot.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.chief.scram": {
+      "src": [
+        "/audio/voice/chief-scram.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.chief.power-up": {
+      "src": [
+        "/audio/voice/chief-power-up.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.chief.vent": {
+      "src": [
+        "/audio/voice/chief-vent.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.chief.sonar-dmg": {
+      "src": [
+        "/audio/voice/chief-sonar-dmg.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.dive": {
+      "src": [
+        "/audio/voice/deck-dive.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.hit-us": {
+      "src": [
+        "/audio/voice/deck-hit-us.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.win": {
+      "src": [
+        "/audio/voice/deck-win.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.lose": {
+      "src": [
+        "/audio/voice/deck-lose.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.two-min": {
+      "src": [
+        "/audio/voice/deck-two-min.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.power-engines": {
+      "src": [
+        "/audio/voice/deck-power-engines.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.power-sonar": {
+      "src": [
+        "/audio/voice/deck-power-sonar.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.power-tubes": {
+      "src": [
+        "/audio/voice/deck-power-tubes.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.evade": {
+      "src": [
+        "/audio/voice/deck-evade.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.go-quiet": {
+      "src": [
+        "/audio/voice/deck-go-quiet.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.ping-now": {
+      "src": [
+        "/audio/voice/deck-ping-now.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.fire-when-ready": {
+      "src": [
+        "/audio/voice/deck-fire-when-ready.mp3"
+      ],
+      "gain": 1
+    },
+    "voice.deck.hold-fire": {
+      "src": [
+        "/audio/voice/deck-hold-fire.mp3"
+      ],
+      "gain": 1
     }
   }
 }

@@ -1,6 +1,16 @@
 # Admiral Undersea
 
-Digital version of Captain Sonar board game with real-time multiplayer.
+Our own real-time submarine hunt: a boat of four stations (helm, listening, torpedo room, engine
+room), each depending on the others, against the AI's boat or a crew of friends. The rules are
+ours; never borrow a board game's name, roles, boards or rules text.
+
+- Rules engine: `server/game/engine.js` (pure, ticked ten times a second), the auto-crew and AI
+  boat `server/game/ai.js` (a belief map from what its own boat heard, never the truth), data in
+  `shared/gameConstants.json` (charts, power, torpedoes, pings) shared with the client.
+- Sound: one site-wide engine (`client/src/lib/audio.js`) opened by the first click; the manifest
+  `client/public/audio/manifest.json` (our sound-factory effects and songs on the media host, the
+  crew's ElevenLabs lines in `client/public/audio/voice/`, made by `scripts/voices.mjs`).
+  `/pane-quiet.js` keeps the desktop app's test browser silent; never remove it.
 
 ## Architecture
 - **Frontend**: React 18 + Vite + SASS (`/client/`)

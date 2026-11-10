@@ -10,6 +10,7 @@ delete process.env.PGLITE_DIR;
 const database = require('../config/database');
 const initDb = require('../config/initDb');
 const engine = require('../game/engine');
+const ai = require('../game/ai');
 const matchStore = require('./matchStore');
 
 const q = async (sql, params) => (await database.query(sql, params)).rows;
@@ -35,28 +36,32 @@ const age = (code, days) => q(
 );
 const stored = async () => (await q(`SELECT g.code FROM game_matches gm JOIN games g ON g.id = gm.game_id ORDER BY g.code`)).map((r) => r.code);
 
+/** A match a few seconds in, with its auto-crew thinking. */
+function aMatch(seed = 1) {
+  const state = engine.initMatch({ seed, vsAi: true, crew: { alpha: { helm: 'human' } } });
+  for (let i = 0; i < 50; i++) engine.tick(state, 0.1, ai);
+  state.touchedAt = 12345;
+  return state;
+}
+
 test('a match reads back as it was written', async () => {
   await makeGame('RT0001', { status: 'playing' });
-  const state = engine.initGameState('live', true);
-  engine.applyMove(state, 'alpha', 'S', { now: 1000 });
-  state.automatedRoles = { alpha: ['engineer'] };
-  state.systemPriority = { alpha: ['sonar', 'mine'] };
-  state.touchedAt = 12345;
+  const state = aMatch();
   assert.equal(await matchStore.save('RT0001', state), true);
   assert.deepEqual(await matchStore.load('RT0001'), JSON.parse(JSON.stringify(state)));
 });
 
-test('writing again replaces the match, and a lobby setup is kept the same way', async () => {
+test('writing again replaces the match', async () => {
   await makeGame('RT0002');
-  await matchStore.save('RT0002', { automatedRoles: { bravo: ['first-mate'] }, systemPriority: {} });
-  assert.deepEqual(await matchStore.load('RT0002'), { automatedRoles: { bravo: ['first-mate'] }, systemPriority: {} });
-  await matchStore.save('RT0002', { automatedRoles: { bravo: [] }, systemPriority: { bravo: ['drone'] } });
-  assert.deepEqual(await matchStore.load('RT0002'), { automatedRoles: { bravo: [] }, systemPriority: { bravo: ['drone'] } });
+  await matchStore.save('RT0002', aMatch(1));
+  const second = aMatch(2);
+  await matchStore.save('RT0002', second);
+  assert.deepEqual(await matchStore.load('RT0002'), JSON.parse(JSON.stringify(second)));
   assert.equal((await q(`SELECT 1 FROM game_matches gm JOIN games g ON g.id = gm.game_id WHERE g.code = 'RT0002'`)).length, 1);
 });
 
 test('a code with no game stores nothing, and loads as nothing', async () => {
-  await matchStore.save('NOGAME', { automatedRoles: {}, systemPriority: {} });
+  await matchStore.save('NOGAME', aMatch());
   assert.equal(await matchStore.load('NOGAME'), null);
   assert.ok(!(await stored()).includes('NOGAME'));
   await makeGame('EMPTY1');
@@ -66,21 +71,22 @@ test('a code with no game stores nothing, and loads as nothing', async () => {
 test('a stored value that is not a match is not loaded', async () => {
   await makeGame('BAD001');
   const id = (await one(`SELECT id FROM games WHERE code = 'BAD001'`)).id;
-  for (const bad of ['[1,2]', '"text"', '{"submarines":{"alpha":{}}}']) {
+  // the old rules' match and lobby setup, from before the overhaul, are not this game's matches
+  const old = ['{"submarines":{"alpha":{},"bravo":{}},"mode":"live"}', '{"automatedRoles":{},"systemPriority":{}}'];
+  for (const bad of ['[1,2]', '"text"', '{"v":2,"subs":{"alpha":{}}}', ...old]) {
     await q(`INSERT INTO game_matches (game_id, state) VALUES ($1, $2::jsonb) ON CONFLICT (game_id) DO UPDATE SET state = EXCLUDED.state`, [id, bad]);
     assert.equal(await matchStore.load('BAD001'), null, bad);
   }
-  assert.equal(matchStore.isMatch({ automatedRoles: {}, systemPriority: {} }), true, 'a lobby setup is fine');
 });
 
 test('a finished game goes a day after its end, an unchanged one after a week, and the rest stay', async () => {
-  const keep = { automatedRoles: {}, systemPriority: {} };
+  const keep = aMatch();
   const cases = [
     ['FIN-2D', { status: 'finished', endedDaysAgo: 2 }, 0, false],   // finished two days ago: gone
     ['FIN-1H', { status: 'finished', endedDaysAgo: 0 }, 0, true],    // just finished: kept
     ['PLAY-8', { status: 'playing' }, 8, false],                     // untouched eight days: gone
     ['PLAY-6', { status: 'playing' }, 6, true],                      // untouched six days: kept
-    ['LOBBY8', { status: 'lobby' }, 8, false],                       // an old lobby setup: gone
+    ['LOBBY8', { status: 'lobby' }, 8, false],                       // an old one: gone
     ['LOBBY1', { status: 'lobby' }, 1, true],
     ['FIN-OLDW', { status: 'finished', endedDaysAgo: 0 }, 9, false], // finished now but not written for nine days
   ];
@@ -101,7 +107,7 @@ test('a finished game goes a day after its end, an unchanged one after a week, a
 
 test('deleting a game deletes its match with it', async () => {
   await makeGame('DEL001');
-  await matchStore.save('DEL001', { automatedRoles: {}, systemPriority: {} });
+  await matchStore.save('DEL001', aMatch());
   assert.ok((await stored()).includes('DEL001'));
   await q(`DELETE FROM games WHERE code = 'DEL001'`);
   assert.ok(!(await stored()).includes('DEL001'));

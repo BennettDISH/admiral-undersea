@@ -1,0 +1,239 @@
+// The base: palette, type, buttons and forms, the sign-in pages.
+:root {
+  // Submarine command-console palette
+  --abyss-0: #02070d;      // deepest ocean
+  --abyss-1: #051726;
+  --steel-0: #081824;      // panel base (gunmetal)
+  --steel-1: #0e2637;      // panel raised
+  --steel-edge: #1d425a;   // panel border
+  --rivet: #2f5872;
+  --sonar: #37f0a0;        // phosphor green (active / online / sonar)
+  --sonar-dim: #17976180;
+  --hydro: #37c9ff;        // cyan (water / info)
+  --amber: #ffb02e;        // caution
+  --alert: #ff5252;        // danger / hull breach
+  --ink: #d7e9f2;          // primary text
+  --ink-dim: #86a1b2;      // muted text
+  --font-display: 'Black Ops One', 'Oswald', system-ui, sans-serif;
+  --font-head: 'Oswald', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Share Tech Mono', ui-monospace, 'Courier New', monospace;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 800px at 50% -10%, #0a2c3f 0%, rgba(10, 44, 63, 0) 60%),
+    radial-gradient(900px 700px at 90% 110%, #06303a 0%, rgba(6, 48, 58, 0) 55%),
+    linear-gradient(180deg, var(--abyss-1) 0%, var(--abyss-0) 70%);
+  background-attachment: fixed;
+}
+
+// Atmospheric depth: faint caustic light drifting + a vignette, behind everything.
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(115deg, rgba(55, 240, 160, 0.025) 0 2px, transparent 2px 5px),
+    radial-gradient(120% 120% at 50% 0%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  background-size: 220px 220px, 100% 100%;
+  animation: caustics 24s linear infinite;
+}
+@keyframes caustics {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 220px 440px, 0 0; }
+}
+
+.app {
+  min-height: calc(100vh - var(--top-bar));
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(100vh - var(--top-bar));
+  font-size: 1.5rem;
+}
+
+// Auth pages
+.auth-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(100vh - var(--top-bar));
+  padding: 2rem;
+}
+
+.auth-container {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+
+  h1 {
+    text-align: center;
+    margin-bottom: 0.5rem;
+    font-size: 2rem;
+    color: #00d4ff;
+  }
+
+  h2 {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    font-weight: 400;
+    opacity: 0.9;
+  }
+}
+
+.form-group {
+  margin-bottom: 1.25rem;
+
+  label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    opacity: 0.9;
+  }
+
+  input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--steel-edge);
+    border-radius: 6px;
+    background: rgba(2, 12, 20, 0.6);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    transition: border-color 0.3s, box-shadow 0.3s;
+
+    &:focus {
+      outline: none;
+      border-color: var(--sonar);
+      box-shadow: 0 0 12px rgba(55, 240, 160, 0.25);
+    }
+  }
+}
+
+button {
+  width: 100%;
+  padding: 0.8rem;
+  border: 1px solid var(--steel-edge);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #14384c, #0c2333);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.15s, border-color 0.15s, background 0.15s;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.4);
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: var(--sonar);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 14px rgba(55, 240, 160, 0.35);
+    color: #fff;
+  }
+  &:active:not(:disabled) { transform: translateY(1px); }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+::selection { background: rgba(55, 240, 160, 0.3); }
+
+.error-message {
+  background: rgba(255, 59, 48, 0.2);
+  border: 1px solid rgba(255, 59, 48, 0.5);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.sso-divider {
+  display: flex;
+  align-items: center;
+  margin: 1.25rem 0;
+
+  &::before, &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  span {
+    color: rgba(255, 255, 255, 0.6);
+    padding: 0 1rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+}
+
+.sso-button {
+  width: 100%;
+  padding: 0.875rem;
+  background: transparent;
+  color: #00d4ff;
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s;
+
+  &:hover {
+    border-color: #00d4ff;
+    background: rgba(0, 212, 255, 0.1);
+    box-shadow: 0 4px 16px rgba(0, 212, 255, 0.2);
+    transform: translateY(-2px);
+  }
+}
+
+.auth-link {
+  text-align: center;
+  margin-top: 1.5rem;
+  opacity: 0.9;
+
+  a {
+    color: #00d4ff;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+
+// The sign-in card sits on the same riveted steel as the consoles.
+.auth-container {
+  background:
+    radial-gradient(circle 3px at 11px 11px, var(--rivet) 45%, transparent 47%),
+    radial-gradient(circle 3px at calc(100% - 11px) 11px, var(--rivet) 45%, transparent 47%),
+    radial-gradient(circle 3px at 11px calc(100% - 11px), var(--rivet) 45%, transparent 47%),
+    radial-gradient(circle 3px at calc(100% - 11px) calc(100% - 11px), var(--rivet) 45%, transparent 47%),
+    linear-gradient(180deg, var(--steel-1), var(--steel-0));
+  border: 1px solid var(--steel-edge);
+  backdrop-filter: none;
+  h1 { font-family: var(--font-display); color: var(--sonar); letter-spacing: 0.05em; }
+}

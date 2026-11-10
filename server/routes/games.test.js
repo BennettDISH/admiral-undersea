@@ -1,5 +1,5 @@
-// Creating a game against an in-process PGlite database: the options must be ones the engine
-// plays, and leaving them out gives the defaults.
+// Creating a game against an in-process PGlite database: the options must be ones the game
+// plays, leaving them out gives the defaults, and one person's open lobbies are capped.
 const test = require('node:test');
 const assert = require('node:assert');
 
@@ -15,14 +15,17 @@ const gameRoutes = require('./games');
 let base;
 let server;
 let token;
+let other;
 
 test.before(async () => {
   await initDb();
-  const user = (await db.query(
+  const mk = async (name) => (await db.query(
     `INSERT INTO users (email, username, password_hash, role, is_active)
-     VALUES ('cap@example.com', 'cap', 'x', 'player', true) RETURNING id, username, role`
-  , [])).rows[0];
-  token = wp.session.mint(user); // the session cookie a sign-in would set
+     VALUES ($1, $2, 'x', 'player', true) RETURNING id, username, role`,
+    [`${name}@example.com`, name],
+  )).rows[0];
+  token = wp.session.mint(await mk('cap')); // the session cookie a sign-in would set
+  other = wp.session.mint(await mk('mate'));
   const app = express();
   app.use(express.json());
   app.use('/api/games', gameRoutes);
@@ -32,32 +35,34 @@ test.before(async () => {
 
 test.after(() => new Promise((resolve) => server.close(resolve)));
 
-const create = async (body) => {
+const create = async (body, as = token) => {
   const res = await fetch(`${base}/create`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: `${wp.session.name}=${token}` },
+    headers: { 'Content-Type': 'application/json', Cookie: `${wp.session.name}=${as}` },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };
 };
 
 test('a game is made with the mode and room setting asked for', async () => {
-  const r = await create({ sameRoom: true, gameMode: 'live' });
-  assert.strictEqual(r.status, 201);
-  assert.strictEqual(r.body.game.game_mode, 'live');
-  assert.strictEqual(r.body.game.same_room, true);
+  for (const gameMode of ['vs-ai', 'vs-ai-veteran', 'crews']) {
+    const r = await create({ sameRoom: true, gameMode });
+    assert.strictEqual(r.status, 201);
+    assert.strictEqual(r.body.game.game_mode, gameMode);
+    assert.strictEqual(r.body.game.same_room, true);
+  }
 });
 
-test('left out, the options default to turn-based and online', async () => {
+test('left out, the options default to playing the AI, online', async () => {
   const r = await create({});
   assert.strictEqual(r.status, 201);
-  assert.strictEqual(r.body.game.game_mode, 'turn-based');
+  assert.strictEqual(r.body.game.game_mode, 'vs-ai');
   assert.strictEqual(r.body.game.same_room, false);
 });
 
-test('a mode the engine does not play is refused, not stored', async () => {
+test('a mode the game does not play is refused, not stored (the old turn-based one too)', async () => {
   const before = (await db.query('SELECT COUNT(*)::int AS n FROM games', [])).rows[0].n;
-  for (const gameMode of ['banana', 'LIVE', 42, ['live']]) {
+  for (const gameMode of ['banana', 'VS-AI', 42, ['crews'], 'turn-based', 'live']) {
     const r = await create({ sameRoom: false, gameMode });
     assert.strictEqual(r.status, 400, `gameMode ${JSON.stringify(gameMode)}`);
   }
@@ -67,7 +72,25 @@ test('a mode the engine does not play is refused, not stored', async () => {
 
 test('sameRoom must be true or false', async () => {
   for (const sameRoom of ['yes', 'abc', 1, {}]) {
-    const r = await create({ sameRoom, gameMode: 'turn-based' });
+    const r = await create({ sameRoom, gameMode: 'crews' });
     assert.strictEqual(r.status, 400, `sameRoom ${JSON.stringify(sameRoom)}`);
   }
+});
+
+test('one person holds at most ten open lobbies; each answer says how many are open, and others are not held back', async () => {
+  let r;
+  let last;
+  for (let i = 0; i < 12; i++) {
+    r = await create({ gameMode: 'crews' }, other);
+    if (r.status === 201) last = r.body;
+  }
+  assert.strictEqual(last.openLobbies, 10);
+  assert.strictEqual(last.lobbyCap, 10);
+  assert.strictEqual(r.status, 429);
+  assert.match(r.body.error, /10 open lobbies/);
+  // starting one frees a place
+  await db.query(`UPDATE games SET status = 'playing' WHERE code = $1`, [last.game.code]);
+  assert.strictEqual((await create({ gameMode: 'crews' }, other)).status, 201);
+  // someone else is not counted against
+  assert.strictEqual((await create({ gameMode: 'vs-ai' })).status, 201);
 });

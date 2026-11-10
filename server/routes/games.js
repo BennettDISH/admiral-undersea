@@ -7,7 +7,12 @@ const router = express.Router();
 // All game routes require an authenticated user (the session cookie, fleet-kit).
 router.use(wp.requireUser);
 
-const GAME_MODES = ['turn-based', 'live'];
+const { GAME_MODES } = require('../game/modes');
+
+// One person may hold this many open lobbies (made in the last day and not started) at a time;
+// past it, a new one waits until one is started or a day old. The create answer says how many are
+// open, so the page can warn before the limit.
+const LOBBY_CAP = 10;
 
 // Generate a random 6-character game code
 function generateGameCode() {
@@ -22,19 +27,31 @@ function generateGameCode() {
 // Create a new game
 router.post('/create', async (req, res) => {
   const sameRoom = req.body?.sameRoom ?? false;
-  const gameMode = req.body?.gameMode ?? 'turn-based';
+  const gameMode = req.body?.gameMode ?? 'vs-ai';
   const userId = req.user.id;
 
-  // The engine knows two modes, and same_room is a yes/no. Anything else used to be stored
+  // Only the modes the game plays, and same_room is a yes/no. Anything else used to be stored
   // as given (or failed as a database error) and then played as an unknown mode.
   if (!GAME_MODES.includes(gameMode)) {
-    return res.status(400).json({ error: 'Game mode must be turn-based or live' });
+    return res.status(400).json({ error: `Game mode must be one of ${GAME_MODES.join(', ')}` });
   }
   if (typeof sameRoom !== 'boolean') {
     return res.status(400).json({ error: 'sameRoom must be true or false' });
   }
 
   try {
+    const open = await db.query(
+      `SELECT COUNT(*)::int AS n FROM games WHERE created_by = $1 AND status = 'lobby' AND created_at > NOW() - INTERVAL '1 day'`,
+      [userId],
+    );
+    const openLobbies = open.rows[0]?.n ?? 0;
+    if (openLobbies >= LOBBY_CAP) {
+      return res.status(429).json({
+        error: `You have ${LOBBY_CAP} open lobbies, the most at once. Start one, or wait a day for the oldest to lapse.`,
+        openLobbies, lobbyCap: LOBBY_CAP,
+      });
+    }
+
     let code = generateGameCode();
 
     // Ensure unique code
@@ -53,7 +70,9 @@ router.post('/create', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      game: result.rows[0]
+      game: result.rows[0],
+      openLobbies: openLobbies + 1,
+      lobbyCap: LOBBY_CAP,
     });
   } catch (error) {
     console.error('Create game error:', error);
