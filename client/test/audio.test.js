@@ -9,7 +9,8 @@ import { SFX, isSoundName } from '../src/lib/soundNames.js'
 import { LINES, speakerOf, totalCharacters } from '../src/game/voice.js'
 
 const manifest = JSON.parse(readFileSync(new URL('../public/audio/manifest.json', import.meta.url), 'utf8'))
-const MEDIA = /^https:\/\/media\.bennettdishmanmedia\.com\/sounds\/admiral-[a-z0-9-]+\/admiral-[a-z0-9-]+-\d+-[0-9a-f]{8}\.mp3$/
+// a take (admiral-blip-2-<hash>.mp3) or a song's layer or sting (admiral-deep-calm-<hash>.mp3)
+const MEDIA = /^https:\/\/media\.bennettdishmanmedia\.com\/sounds\/admiral-[a-z0-9-]+\/admiral-[a-z0-9-]+-[0-9a-f]{8}\.mp3$/
 const OWN_VOICE = /^\/audio\/voice\/(helm|listener|weapons|chief|deck)-[a-z0-9-]+\.mp3$/
 
 test('the manifest names only sounds the boat asks for: ours on the media host, the crew lines on this site', () => {
@@ -26,7 +27,7 @@ test('the manifest names only sounds the boat asks for: ours on the media host, 
   }
 })
 
-test('every effect, loop and line the game asks for has a recording', { todo: 'the sound-factory batch lands in the next commit' }, () => {
+test('every effect, loop and line the game asks for has a recording', () => {
   const { sounds } = parseManifest(manifest)
   const missing = [...SFX, ...Object.keys(LINES)].filter((n) => !sounds.has(n))
   assert.deepEqual(missing, [])

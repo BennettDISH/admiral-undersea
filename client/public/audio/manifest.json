@@ -312,6 +312,182 @@
         "/audio/voice/deck-hold-fire.mp3"
       ],
       "gain": 1
+    },
+    "music.calm": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-calm-13fefc8e.mp3",
+      "gain": 0.55,
+      "loopStart": 0.3,
+      "loopEnd": 42.966667
+    },
+    "music.fight": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-fight-83272354.mp3",
+      "gain": 0.55,
+      "loopStart": 0.3,
+      "loopEnd": 42.966667
+    },
+    "sting.win": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-sting-win-9016ff64.mp3",
+      "gain": 0.6
+    },
+    "sting.lose": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-sting-lose-c43fd53b.mp3",
+      "gain": 0.6
+    },
+    "music.menu": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-harbor/admiral-harbor-calm-8e455840.mp3",
+      "gain": 0.55,
+      "loopStart": 0.3,
+      "loopEnd": 50.825333
+    },
+    "amb.hull": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-amb-hull/admiral-amb-hull-1-2c91fdfc.mp3",
+      "gain": 0.6,
+      "loopStart": 0.3,
+      "loopEnd": 12.3
+    },
+    "amb.sea": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-amb-sea/admiral-amb-sea-1-b00bd20e.mp3",
+      "gain": 0.55,
+      "loopStart": 0.3,
+      "loopEnd": 16.3
+    },
+    "ui.click": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ui-click/admiral-ui-click-1-a795c419.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ui-click/admiral-ui-click-2-a45154ca.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ui-click/admiral-ui-click-3-b50ed23e.mp3"
+      ],
+      "gain": 0.7
+    },
+    "ui.lever": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ui-lever/admiral-ui-lever-1-679e912f.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ui-lever/admiral-ui-lever-2-dd906b04.mp3"
+      ],
+      "gain": 0.5
+    },
+    "ui.beep": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ui-beep/admiral-ui-beep-1-93348b01.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ui-beep/admiral-ui-beep-2-6a89e193.mp3"
+      ],
+      "gain": 0.45
+    },
+    "ping.out": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-ping-out/admiral-ping-out-1-979a7fa1.mp3",
+      "gain": 0.6
+    },
+    "ping.in": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ping-in/admiral-ping-in-1-828c7070.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-ping-in/admiral-ping-in-2-49803c94.mp3"
+      ],
+      "gain": 0.45
+    },
+    "blip": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-blip/admiral-blip-1-f92ec481.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-blip/admiral-blip-2-e9e99f88.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-blip/admiral-blip-3-c497997a.mp3"
+      ],
+      "gain": 0.45
+    },
+    "tube.load": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-tube-load/admiral-tube-load-1-73ae2eb6.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-tube-load/admiral-tube-load-2-9ce04ce8.mp3"
+      ],
+      "gain": 0.55
+    },
+    "torpedo.run": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-torpedo-run/admiral-torpedo-run-1-dc8cb4a1.mp3",
+      "gain": 0.45,
+      "loopStart": 0.3,
+      "loopEnd": 2.3
+    },
+    "klaxon": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-klaxon/admiral-klaxon-1-0ac6a187.mp3",
+      "gain": 0.4
+    },
+    "scrape": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-scrape/admiral-scrape-1-31361169.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-scrape/admiral-scrape-2-b624c788.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-scrape/admiral-scrape-3-4df6e089.mp3"
+      ],
+      "gain": 0.8
+    },
+    "decoy": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-decoy/admiral-decoy-1-3d72181c.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-decoy/admiral-decoy-2-c89b1bc4.mp3"
+      ],
+      "gain": 0.7
+    },
+    "vent": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-vent/admiral-vent-1-3a374246.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-vent/admiral-vent-2-72d05df6.mp3"
+      ],
+      "gain": 0.55
+    },
+    "fire": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-fire/admiral-fire-1-90e9f9eb.mp3",
+      "gain": 0.5,
+      "loopStart": 0.3,
+      "loopEnd": 6.3
+    },
+    "flood": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-flood/admiral-flood-1-70efc0f5.mp3",
+      "gain": 0.55,
+      "loopStart": 0.3,
+      "loopEnd": 6.3
+    },
+    "repair": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-repair/admiral-repair-1-8835ef60.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-repair/admiral-repair-2-f6cfc7fd.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-repair/admiral-repair-3-9e331069.mp3"
+      ],
+      "gain": 0.55
+    },
+    "scram": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-scram/admiral-scram-1-cd44ee44.mp3",
+      "gain": 0.6
+    },
+    "power.up": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-power-up/admiral-power-up-1-5f28eacf.mp3",
+      "gain": 0.6
+    },
+    "whale": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-whale/admiral-whale-1-4bd5bfcc.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-whale/admiral-whale-2-0b5736b7.mp3"
+      ],
+      "gain": 0.3
+    },
+    "sink": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-sink/admiral-sink-1-eb75da46.mp3",
+      "gain": 0.85
+    },
+    "breach": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-breach/admiral-breach-1-7b1bb205.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-breach/admiral-breach-2-11843f38.mp3"
+      ],
+      "gain": 0.8
+    },
+    "bubbles": {
+      "src": [
+        "https://media.bennettdishmanmedia.com/sounds/admiral-bubbles/admiral-bubbles-1-fa58cea7.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-bubbles/admiral-bubbles-2-d7c9f48e.mp3",
+        "https://media.bennettdishmanmedia.com/sounds/admiral-bubbles/admiral-bubbles-3-d65bee25.mp3"
+      ],
+      "gain": 0.4
+    },
+    "dive": {
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-dive/admiral-dive-1-956cc082.mp3",
+      "gain": 0.55
     }
   }
 }
