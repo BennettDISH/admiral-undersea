@@ -9,7 +9,8 @@ import './TopBar.css';
 // it never covers play. The app says who is signed in (`manual`) and takes over the menu, so Sign
 // out keeps the sign-in page up and drops the game's socket. A handler left out (null) leaves the
 // bar's own action; without Waypoint the bar shows only Sign out.
-export default function TopBar({ ready = true, user, ssoEnabled, onSignIn, onSwitchAccount, onSignOut, onSignOutAll }) {
+// Signed out with Waypoint, the bar also shows "Create account" (onSignUp: its sign-up form).
+export default function TopBar({ ready = true, user, ssoEnabled, onSignIn, onSignUp, onSwitchAccount, onSignOut, onSignOutAll }) {
   const bar = useRef(null);
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export default function TopBar({ ready = true, user, ssoEnabled, onSignIn, onSwi
     };
     const handlers = {
       'fleet-topbar-signin': take(onSignIn),
+      'fleet-topbar-signup': take(onSignUp),
       'fleet-topbar-switch': take(onSwitchAccount),
       'fleet-topbar-signout': take(onSignOut),
       'fleet-topbar-signout-all': take(onSignOutAll),
@@ -36,7 +38,7 @@ export default function TopBar({ ready = true, user, ssoEnabled, onSignIn, onSwi
     return () => {
       for (const [name, fn] of Object.entries(handlers)) el.removeEventListener(name, fn);
     };
-  }, [onSignIn, onSwitchAccount, onSignOut, onSignOutAll]);
+  }, [onSignIn, onSignUp, onSwitchAccount, onSignOut, onSignOutAll]);
 
   return <fleet-topbar ref={bar} home={ARCADE_URL} manual="" sso={ssoEnabled ? undefined : 'off'} />;
 }

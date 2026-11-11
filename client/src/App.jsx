@@ -114,6 +114,7 @@ function App() {
         user={user}
         ssoEnabled={ssoEnabled}
         onSignIn={ssoEnabled ? () => startWaypoint({ back }) : null}
+        onSignUp={ssoEnabled ? () => startWaypoint({ back, prompt: 'create' }) : null}
         onSwitchAccount={ssoEnabled ? () => startWaypoint({ back, prompt: 'login' }) : null}
         onSignOut={handleSignOut}
         onSignOutAll={handleSignOutAll}

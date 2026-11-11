@@ -56,6 +56,9 @@ test('the start URL carries the page to come back to, and prompt=login only for 
   assert.equal(ssoStartUrl({ prompt: 'none' }), '/api/auth/sso/login')
   assert.equal(ssoStartUrl({ next: '/lobby/ABC123' }), '/api/auth/sso/login?next=%2Flobby%2FABC123')
   assert.equal(ssoStartUrl({ next: '/join?code=XYZ', prompt: 'login' }), '/api/auth/sso/login?next=%2Fjoin%3Fcode%3DXYZ&prompt=login')
+  // the top bar's Create account: Waypoint's sign-up form, back to the same page
+  assert.equal(ssoStartUrl({ next: '/join?code=XYZ', prompt: 'create' }), '/api/auth/sso/login?next=%2Fjoin%3Fcode%3DXYZ&prompt=create')
+  assert.equal(ssoStartUrl({ prompt: 'CREATE' }), '/api/auth/sso/login')
 })
 
 test('a sign-in that came back with an error says why', () => {

@@ -43,11 +43,12 @@ export function returnPath(pathname, search = '') {
 
 // The server's route that sends you on to Waypoint, with the page to come back to. The server
 // follows `next` only to a path on this site. prompt=login (Switch account) makes Waypoint ask
-// which account again instead of reusing the one it is signed in as.
+// which account again instead of reusing the one it is signed in as; prompt=create (Create
+// account) opens its sign-up form, which comes back here signed in.
 export function ssoStartUrl({ next = null, prompt } = {}) {
   const params = new URLSearchParams()
   if (next) params.set('next', next)
-  if (prompt === 'login') params.set('prompt', 'login')
+  if (prompt === 'login' || prompt === 'create') params.set('prompt', prompt)
   const qs = params.toString()
   return `/api/auth/sso/login${qs ? `?${qs}` : ''}`
 }

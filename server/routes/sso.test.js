@@ -72,6 +72,13 @@ test('Switch account passes prompt=login on, and no other prompt', async () => {
   assert.strictEqual((await start('?prompt=none')).url.searchParams.has('prompt'), false);
 });
 
+test('Create account passes prompt=create on; the game takes guests, so Waypoint keeps its guest start', async () => {
+  const { url } = await start('?prompt=create');
+  assert.strictEqual(url.searchParams.get('prompt'), 'create');
+  assert.deepStrictEqual([...url.searchParams.keys()].sort(), ['client_id', 'prompt', 'redirect_uri', 'state']);
+  assert.strictEqual((await start('?prompt=CREATE')).url.searchParams.has('prompt'), false);
+});
+
 test('a callback without the state cookie, or with another state, is refused before any code exchange', async () => {
   const { url, cookies } = await start();
   const state = url.searchParams.get('state');
