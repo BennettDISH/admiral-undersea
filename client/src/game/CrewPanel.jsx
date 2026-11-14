@@ -85,7 +85,7 @@ export function Portrait({ station, talking, size = 88 }) {
  */
 export default function CrewPanel({ view, players, myRoles, speaking, caption, needs, onPick, active }) {
   return (
-    <div className="crew-panel">
+    <div className="crew-panel" data-tut="crew">
       {STATIONS.map((s) => {
         const mine = myRoles.includes(s)
         const covered = view.crew[s] === 'auto'

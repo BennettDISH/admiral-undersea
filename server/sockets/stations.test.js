@@ -315,7 +315,7 @@ test('one player at several stations works the one on screen; the auto-crew cove
   me.drop()
 })
 
-test('the tutorial: its player presses Next and Skip; nobody else can, from this game or another, seated or not', async () => {
+test('the tutorial: its player presses Next, Skip, Back and End; nobody else can, from this game or another, seated or not', async () => {
   const code = newGame('STAT15', { game_mode: 'tutorial' }, { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' }, 7: { team: 'alpha', roles: 'unassigned' } })
   const other = newGame('STAT16', { created_by: 8 }, { 8: { team: 'alpha', roles: 'helm' }, 9: { team: 'bravo', roles: 'helm' } })
   const [me] = await started(code, 1)
@@ -329,23 +329,48 @@ test('the tutorial: its player presses Next and Skip; nobody else can, from this
   const [stranger] = await seated(code, 6) // no seat
   const [idle] = await seated(code, 7) // a seat, no station
   const [elsewhere, theirs] = await started(other, 8, 9) // seated in another game
-  for (const p of [stranger, idle, elsewhere, theirs]) await p.call('tutorial', { gameCode: code, action: 'next' })
-  await elsewhere.call('tutorial', { gameCode: other, action: 'skip' }) // not a tutorial: nothing
+  for (const p of [stranger, idle, elsewhere, theirs]) {
+    for (const action of ['next', 'skip', 'back', 'end']) await p.call('tutorial', { gameCode: code, action })
+  }
+  await elsewhere.call('tutorial', { gameCode: other, action: 'end' }) // not a tutorial: nothing
   assert.equal(s.tutorial.step, 'welcome')
+  assert.equal(s.over, null, 'nobody else ended it')
   assert.equal(match(other).tutorial, undefined)
-  for (const action of ['jump', '__proto__', 'constructor', 42, null]) await me.call('tutorial', { gameCode: code, action })
-  assert.equal(s.tutorial.step, 'welcome', 'only next or skip')
+  assert.equal(match(other).over, null)
+  for (const action of ['jump', '__proto__', 'constructor', 'toString', 42, null, ['next']]) await me.call('tutorial', { gameCode: code, action })
+  assert.equal(s.tutorial.step, 'welcome', 'only next, skip, back or end')
 
+  for (let i = 0; i < 5; i++) await me.call('tutorial', { gameCode: code, action: 'next' })
+  assert.equal(s.tutorial.step, 'helm-slow')
   await me.call('tutorial', { gameCode: code, action: 'next' })
-  assert.equal(s.tutorial.step, 'helm')
-  await me.call('tutorial', { gameCode: code, action: 'next' })
-  assert.equal(lastRejection(me).reason, 'not-now', 'a lesson is done by doing it')
+  assert.equal(lastRejection(me).reason, 'not-now', 'a do step is done by doing it')
+  // the clock stands still on it: no ticking, no views, no saves
+  const sent = emitted.length
+  const t = s.t
+  for (let i = 0; i < 50; i++) server._tickAll()
+  assert.equal(s.t, t)
+  assert.equal(emitted.slice(sent).filter((e) => e.room.startsWith(`game:${code}`)).length, 0, 'nothing goes out while it waits')
+  // ringing Slow moves it on at the next tick, and the view goes out at once
+  await me.call('helm', { gameCode: code, speed: 1 })
+  server._tickAll()
+  assert.equal(s.tutorial.step, 'helm-way')
+  const views = emitted.slice(sent).filter((e) => e.ev === 'game-state' && e.room === `game:${code}:alpha`)
+  assert.equal(views[views.length - 1].payload.tutorial.step, 'helm-way')
+  // Back sends the whole plot again (contacts included); Skip does a do step
+  await me.call('tutorial', { gameCode: code, action: 'back' })
+  assert.equal(s.tutorial.step, 'helm-slow')
+  assert.ok(emitted[emitted.length - 1].payload.contacts, 'the view after Back carries the contacts')
   await me.call('tutorial', { gameCode: code, action: 'skip' })
-  assert.equal(s.tutorial.step, 'listen')
-  assert.deepEqual(s.tutorial.skipped, ['helm'])
+  assert.equal(s.tutorial.step, 'helm-way')
+  assert.deepEqual(s.tutorial.skipped, ['helm-slow'])
   // the training boat is never anyone's to crew
   await idle.call('select-team', { gameCode: code, team: 'bravo' })
   assert.equal(seats[code][7].team, 'alpha')
+  // End: the lesson is over with no winner, and the game is recorded finished
+  await me.call('tutorial', { gameCode: code, action: 'end' })
+  assert.deepEqual({ winner: s.over?.winner, how: s.over?.how }, { winner: null, how: 'left' })
+  await new Promise((r) => setTimeout(r, 0))
+  assert.ok(finished.includes(code))
   me.drop()
 })
 

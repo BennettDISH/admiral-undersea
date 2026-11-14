@@ -196,8 +196,12 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
         const awayChanged = updateAway(code, state, now);
         const events = engine.tick(state, TUNING.TICK_SECONDS, ai);
         emitEvents(code, events);
-        // Five views a second of play, and one at once when the crew changes or something public happens.
-        if (awayChanged || state.t - (state.viewT ?? -1) >= VIEW_EVERY_SECONDS - 1e-6 || events.some((e) => e.scope === 'room')) sendViews(code, state);
+        // A tutorial with its clock stopped: nothing to send or save until its player does something.
+        if (engine.isPaused(state) && !events.length) continue;
+        // Five views a second of play, and one at once when the crew changes, something public
+        // happens, or the tutorial moves on a step.
+        const stepped = events.some((e) => e.event === 'fx' && e.payload.type === 'tutorial');
+        if (awayChanged || stepped || state.t - (state.viewT ?? -1) >= VIEW_EVERY_SECONDS - 1e-6 || events.some((e) => e.scope === 'room')) sendViews(code, state);
         if (now - (state.savedAt || 0) >= SAVE_RUNNING_EVERY_MS || state.over) { state.savedAt = now; markDirty(code); }
       } catch (err) {
         console.error(`tick error in ${code}:`, err);
@@ -498,13 +502,14 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
       apply(socket, gameCode, at.state, engine.call(at.state, at.team, station, call));
     });
 
-    // The tutorial's Next and Skip: anyone seated on the boat that is learning, holding a station.
+    // The tutorial's Next, Skip, Back and End: anyone seated on the boat that is learning, holding
+    // a station. Back puts the boat as it was, so the view that follows carries the whole plot.
     on('tutorial', async ({ gameCode, action }) => {
       const team = teamIn(gameCode);
-      if (!team || !socket.roles.length || (action !== 'next' && action !== 'skip')) return;
+      if (!team || !socket.roles.length || !engine.TUTORIAL_ACTIONS.includes(action)) return;
       const state = gameStates.get(gameCode);
       if (!state?.tutorial) return;
-      apply(socket, gameCode, state, engine.tutorialAct(state, team, action));
+      if (apply(socket, gameCode, state, engine.tutorialAct(state, team, action)) && action === 'back') sendViews(gameCode, state, { contacts: true });
     });
 
     socket.on('disconnect', () => {

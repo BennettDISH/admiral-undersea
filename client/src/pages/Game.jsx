@@ -6,11 +6,11 @@ import { useScene } from '../lib/useScene'
 import { useMatch } from '../game/useMatch'
 import ChartCanvas from '../game/ChartCanvas'
 import CrewPanel from '../game/CrewPanel'
-import TutorialCard from '../game/TutorialCard'
+import TutorialCoach from '../game/TutorialCoach'
 import { HelmStation, ListeningStation, TorpedoStation, EngineStation } from '../game/Stations'
 import { react, ending, newMemory } from '../game/reactions'
 import { LINES, speakerOf } from '../game/voice'
-import { LESSONS } from '../game/tutorial'
+import { chartFocus } from '../game/tutorial'
 import { loadArt } from '../game/sprites'
 import {
   STATIONS, STATION_INFO, TEAM_INFO, HULL_MAX, MATCH_SECONDS, CALLS, chart, headingFor, bearing, clockText, enemyOf, modeId,
@@ -22,7 +22,7 @@ const PANELS = { helm: HelmStation, listener: ListeningStation, weapons: Torpedo
 
 function Hull({ hull, label, side }) {
   return (
-    <div className={`hull-read ${side}`} aria-label={`${label}: hull ${hull} of ${HULL_MAX}`}>
+    <div className={`hull-read ${side}`} aria-label={`${label}: hull ${hull} of ${HULL_MAX}`} data-tut={`hull-${side}`}>
       <span className="hull-label">{label}</span>
       <span className="hull-pips">{Array.from({ length: HULL_MAX }, (_, i) => <i key={i} className={i < hull ? 'on' : ''} />)}</span>
     </div>
@@ -120,15 +120,21 @@ function Game({ user }) {
     }
   }), [onFx, team, audio, speak, feel])
 
-  // the tutorial: each new lesson brings its station up on screen, with a beep from the console
+  // the tutorial: a beep from the console at each new step (the coach lights the station's tab
+  // when the step is on another station, so the player learns to switch)
   const lesson = view?.tutorial?.step
   useEffect(() => {
     if (!lesson || view?.over) return
-    const station = LESSONS[lesson]?.station
-    if (station && myRoles.includes(station)) setActive(station)
     audio.play('ui.beep', { pitch: 1.2, vol: 0.7 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lesson])
+  // leaving the tutorial for the deck: the lesson ends on the server, with no ending to play
+  const leaving = useRef(false)
+  const leaveTutorial = useCallback(() => {
+    leaving.current = true
+    send('tutorial', { action: 'end' })
+    navigate('/')
+  }, [send, navigate])
 
   // the server said no: a short note, unless it is only pacing
   useEffect(() => {
@@ -173,7 +179,7 @@ function Game({ user }) {
   // the end
   const ended = useRef(false)
   useEffect(() => {
-    if (!over || !team || ended.current) return
+    if (!over || !team || ended.current || leaving.current) return
     ended.current = true
     const e = ending(over.winner ?? null, team)
     setTimeout(() => { audio.play(e.sound); if (e.say) speak(e.say) }, 900)
@@ -259,7 +265,7 @@ function Game({ user }) {
       {flood && <div className="flood-water" style={{ '--level': Math.min(1, b.floodTime / 20) }} aria-hidden="true" />}
       {b.hull <= 2 && <div className="cracks" aria-hidden="true" />}
 
-      <header className="room-header">
+      <header className="room-header" data-tut="header">
         <div className="boat-name">
           <span className="boat-flag" />
           <span>{boatName}</span>
@@ -275,10 +281,11 @@ function Game({ user }) {
 
       <div className="room">
         <section className="console-column">
-          <nav className="station-tabs" aria-label="Your stations">
+          <nav className="station-tabs" aria-label="Your stations" data-tut="tabs">
             {STATIONS.map((s) => (
               <button
                 key={s}
+                data-tut={`tab-${s}`}
                 className={`station-tab ${active === s ? 'on' : ''} ${needs[s] ? 'needs' : ''}`}
                 disabled={!myRoles.includes(s)}
                 onClick={() => { setActive(s); audio.play('ui.beep', { vol: 0.5 }) }}
@@ -299,7 +306,7 @@ function Game({ user }) {
             )}
           </div>
           {callFrom && (
-            <div className="calls" role="group" aria-label="Crew calls">
+            <div className="calls" role="group" aria-label="Crew calls" data-tut="calls">
               {Object.keys(CALLS).map((c) => (
                 <button key={c} className="call-btn" onClick={() => send('call', { station: callFrom, call: c })}>{CALLS[c].replace(/!|\./g, '')}</button>
               ))}
@@ -308,7 +315,7 @@ function Game({ user }) {
         </section>
 
         <section className="chart-table">
-          {training && <TutorialCard view={view} contacts={contacts} send={send} myRoles={myRoles} />}
+          {training && <TutorialCoach view={view} send={send} active={active} onLeave={leaveTutorial} />}
           <ChartCanvas
             view={view}
             contacts={contacts}
@@ -318,6 +325,7 @@ function Game({ user }) {
             aim={aim}
             guideId={guideId}
             effects={effects}
+            focus={training ? chartFocus(view.tutorial, view) : null}
           />
           <div className="chart-legend">
             <span className="lg hull">machinery</span><span className="lg bio">whale</span><span className="lg torp">torpedo / launch</span><span className="lg vent">vent field: hides a slow boat</span>
@@ -333,7 +341,7 @@ function Game({ user }) {
       </div>
 
       {toast && <div className="room-toast" role="status">{toast}</div>}
-      {view.t < 3.2 && !over && <div className="dive-overlay" aria-hidden="true"><div className="dive-gauge" /><h1>DIVE! DIVE!</h1></div>}
+      {view.t < 3.2 && !over && !training && <div className="dive-overlay" aria-hidden="true"><div className="dive-gauge" /><h1>DIVE! DIVE!</h1></div>}
 
       {end && (
         <div className={`ending ${over.winner === team ? 'won' : 'lost'}`}>

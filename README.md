@@ -20,8 +20,15 @@ change is a new kit version, never a re-packed tarball; never edit the kit here.
 ## How it plays (rebuilt 2026-11)
 - **The deck** offers the **Tutorial** (a guided first dive against a training boat on its own
   open chart, The Training Range: the helm, listening, the charge that shows why you never charge,
-  the torpedo room, the engine room), **Play against AI** with a pick of Easy, Normal or Hard (a
-  scripted computer crew, `server/game/ai.js`), and **Crew against crew**.
+  the torpedo room, the engine room, then a short practice hunt), **Play against AI** with a pick
+  of Easy, Normal or Hard (a scripted computer crew, `server/game/ai.js`), and **Crew against crew**.
+- **The tutorial goes one control at a time** (since 2026-11-13): the clock stops at every step
+  that is read or done, the room dims but for the one control to use, a label beside it says what
+  it does, and the card says what to do. A step moves on when the player does the thing (or presses
+  Next on a step that is only read); a step that runs the clock (a cell of way, a bearing, a tube
+  loading) moves on when that has happened, never on a timer. When the control is on another
+  station, its tab is lit first. Back puts the boat as it was when the step before began (a few
+  steps deep), Skip this step does it for the player, and Leave tutorial ends it for the deck.
 - **The chart**: 16 by 12 cells (two charts dealt at random: The Black Shelf, The Narrows) with
   rocks, thermal vent fields that hide a slow boat's noise, and whales whose song is a false contact.
 - **The hunt matters**: speed is noise. At Full a boat is heard across the sea, its own flow noise

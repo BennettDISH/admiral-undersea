@@ -12,15 +12,18 @@ const SECONDS_PER_CELL = [0, 2.6, 1.7, 1.1]
  * blasts, animated. `mode` says what a click does: 'mark' (listening), 'aim' and 'guide' (the
  * torpedo room) or 'look'. `effects` is a list the page adds blasts, pings and calls to.
  */
-export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim, guideId, effects, team }) {
+export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim, guideId, effects, team, focus = null }) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const live = useRef({})
   const [hover, setHover] = useState(null)
-  live.current = { view, contacts, mode, aim, guideId, effects, hover, team }
+  live.current = { view, contacts, mode, aim, guideId, effects, hover, team, focus }
 
   // smooth motion between views: where each torpedo was and is
   const tracks = useRef({ torps: new Map(), viewAt: 0 })
+  // when each bearing and ping was first drawn (screen time), so they still grow and show what they
+  // found while the tutorial's clock is stopped (the match's own clock stands still then)
+  const firstSeen = useRef(new Map())
   useEffect(() => {
     if (!view) return
     const now = performance.now()
@@ -57,7 +60,7 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
       try { draw(nowMs) } catch { /* next frame */ }
     }
     const draw = (nowMs) => {
-      const { view: v, contacts: cs, mode: m, aim: a, guideId: gid, effects: fxList, hover: hv } = live.current
+      const { view: v, contacts: cs, mode: m, aim: a, guideId: gid, effects: fxList, hover: hv, focus: fc } = live.current
       const ctx = canvas.getContext('2d')
       if (!v || !size.w) return
       const map = chart(v.mapId)
@@ -66,6 +69,14 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
       const ox = s * 0.8
       const oy = s * 0.8
       ctx.setTransform(size.dpr, 0, 0, size.dpr, 0, 0)
+      const seen = firstSeen.current
+      const shownFor = (key) => {
+        if (!seen.has(key)) {
+          if (seen.size > 400) seen.clear()
+          seen.set(key, nowMs)
+        }
+        return (nowMs - seen.get(key)) / 1000
+      }
       const cx = (x) => ox + x * s + s / 2
       const cy = (y) => oy + y * s + s / 2
 
@@ -134,7 +145,7 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
           continue
         }
         // a contact can arrive a moment before the view that carries its time
-        const grow = Math.max(0.02, Math.min(1, (age + 0.05) / 0.6))
+        const grow = Math.max(0.02, Math.min(1, (Math.max(age, shownFor(`c${c.id}`)) + 0.05) / 0.6))
         const from = { x: cx(c.ox), y: cy(c.oy) }
         const len = s * 16 * grow
         const a = ((c.bearing - 90) * Math.PI) / 180
@@ -172,15 +183,19 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
           ctx.globalAlpha = Math.max(0.15, 1 - age / 25)
           const px = cx(p.x)
           const py = cy(p.y)
-          const k = s * 0.14
+          const k = s * (v.tutorial ? 0.22 : 0.14)
           ctx.beginPath(); ctx.moveTo(px - k, py - k); ctx.lineTo(px + k, py + k); ctx.moveTo(px + k, py - k); ctx.lineTo(px - k, py + k); ctx.stroke()
+          // in training, a ring round each cross so it is easy to find
+          if (v.tutorial) { ctx.beginPath(); ctx.arc(px, py, s * (0.42 + 0.06 * Math.sin(t * 4)), 0, Math.PI * 2); ctx.stroke() }
         }
       }
       ctx.restore()
 
       // the last ping: a ring going out, then what it found, fading
       if (v.ping) {
-        const age = v.t - v.ping.t
+        let age = Math.max(v.t - v.ping.t, shownFor(`p${v.ping.t},${v.ping.x},${v.ping.y}`))
+        // the tutorial's clock is stopped: keep what the ping found on the chart while the card is read
+        if (v.tutorial?.paused) age = Math.min(age, 2.5)
         if (age >= 0 && age < 8) {
           const r = Math.max(0, Math.min(1, age / 1.2)) * v.ping.radius * s
           ctx.save()
@@ -252,7 +267,8 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
       // our boat: slides towards the next cell as it makes way
       const speed = b.speed
       let prog = b.progress
-      if (speed > 0) prog = Math.min(0.97, b.progress + sinceView / (SECONDS_PER_CELL[speed] * (b.heading % 2 ? 1.41 : 1)))
+      // (not while the tutorial's clock is stopped: then nothing moves)
+      if (speed > 0 && !v.tutorial?.paused) prog = Math.min(0.97, b.progress + sinceView / (SECONDS_PER_CELL[speed] * (b.heading % 2 ? 1.41 : 1)))
       const dl = delta(b.heading)
       const canGo = map.isWater(b.x + dl.dx, b.y + dl.dy)
       const bx = cx(b.x + (canGo ? dl.dx * prog : 0))
@@ -298,6 +314,29 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
         drawReticle(ctx, cx(target.x), cy(target.y), s, t, problem ? PALETTE.alarm : '#7dffb0')
       }
 
+      // training: the practice torpedo coming at us, and a cell the lesson points at
+      const threat = v.tutorial?.threat
+      if (threat) {
+        const pulse = 0.55 + 0.45 * Math.sin(t * 7)
+        ctx.save()
+        ctx.fillStyle = `rgba(255, 70, 50, ${0.5 + 0.5 * pulse})`
+        ctx.strokeStyle = 'rgba(255, 150, 130, 0.9)'
+        ctx.lineWidth = 2
+        ctx.beginPath(); ctx.arc(cx(threat.x), cy(threat.y), s * 0.2, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(cx(threat.x), cy(threat.y), s * (0.45 + 0.15 * pulse), 0, Math.PI * 2); ctx.stroke()
+        ctx.font = `${Math.max(9, s * 0.28)}px "Share Tech Mono", monospace`
+        ctx.textAlign = 'center'
+        ctx.fillText('THEIR TORPEDO', cx(threat.x), cy(threat.y) - s * 0.7)
+        ctx.restore()
+      }
+      if (fc) {
+        ctx.save()
+        ctx.strokeStyle = `rgba(255, 200, 80, ${0.6 + 0.4 * Math.sin(t * 5)})`
+        ctx.lineWidth = 3
+        ctx.beginPath(); ctx.arc(cx(fc.x), cy(fc.y), s * (0.75 + 0.12 * Math.sin(t * 5)), 0, Math.PI * 2); ctx.stroke()
+        ctx.restore()
+      }
+
       // blasts and the boats that sank
       for (const e of fxList || []) {
         const age = (nowMs - e.at) / 1000
@@ -333,7 +372,7 @@ export default function ChartCanvas({ view, contacts, mode = 'look', onCell, aim
   }
 
   return (
-    <div className={`chart-wrap mode-${mode}`} ref={wrapRef}>
+    <div className={`chart-wrap mode-${mode}`} ref={wrapRef} data-tut="chart">
       <canvas
         ref={canvasRef}
         className="chart-canvas"

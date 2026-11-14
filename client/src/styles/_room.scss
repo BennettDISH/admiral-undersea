@@ -262,36 +262,64 @@
   background: linear-gradient(160deg, #3a2a18, #22180c); border-color: #6a4a24; // a wooden chart table
 }
 
-// the tutorial's card: a brass-edged instruction plate pinned to the chart table
-@keyframes cardin { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-.tutorial-card {
-  display: grid; grid-template-columns: 84px 1fr; gap: 0.8rem; margin-bottom: 0.6rem; padding: 0.8rem 0.9rem;
-  background: linear-gradient(170deg, #1c2a24, #0f1915); border: 1px solid #c9902f; border-radius: 8px;
-  box-shadow: 0 0 0 1px rgba(255, 176, 46, 0.15), 0 6px 18px rgba(0, 0, 0, 0.5); animation: cardin 0.3s ease-out;
+// the tutorial's coach: the room dimmed but for one lit control, a label saying what it does, and
+// a brass-edged instruction card kept clear of the control
+@keyframes cardin { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tutring { 0%, 100% { box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.45), 0 0 18px 2px rgba(255, 200, 80, 0.55); } 50% { box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.45), 0 0 34px 8px rgba(255, 200, 80, 0.95); } }
+@keyframes tutnudge { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.06); } 60% { transform: scale(0.98); } }
+.tut-dim { position: fixed; z-index: 85; background: rgba(2, 8, 10, 0.72);
+  &.light { background: rgba(2, 8, 10, 0.28); }
+  &.block { pointer-events: auto; cursor: not-allowed; }
+  &.see-through { pointer-events: none; }
+}
+.tut-ring { position: fixed; z-index: 86; pointer-events: none; border: 3px solid #ffc94d; border-radius: 9px; animation: tutring 1.4s ease-in-out infinite;
+  &.nudged { animation: tutnudge 0.45s ease-out, tutring 1.4s ease-in-out 0.45s infinite; }
+  &.watching { border-style: dashed; border-color: rgba(255, 201, 77, 0.8); }
+}
+.tut-tag { position: fixed; z-index: 87; pointer-events: none; max-width: 290px; padding: 0.35rem 0.65rem; border-radius: 6px;
+  background: #ffc94d; color: #1a1206; font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.3; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+}
+.tut-card {
+  position: fixed; z-index: 91; max-height: 50vh; overflow: auto;
+  display: grid; grid-template-columns: 72px 1fr; gap: 0.8rem; padding: 0.8rem 0.95rem;
+  background: linear-gradient(170deg, #1c2a24, #0f1915); border: 1px solid #c9902f; border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(255, 176, 46, 0.15), 0 10px 30px rgba(0, 0, 0, 0.7); animation: cardin 0.25s ease-out;
   .tc-face { display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
     .portrait { border-radius: 6px; border: 2px solid #4f6a5e; }
-    .tc-who { font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-dim); text-transform: uppercase; }
+    .tc-who { font-family: var(--font-mono); font-size: 0.66rem; color: var(--ink-dim); text-transform: uppercase; }
   }
   .tc-body { min-width: 0; display: flex; flex-direction: column; gap: 0.35rem;
-    p { font-size: 0.92rem; line-height: 1.4; color: var(--ink); }
+    h2 { font-family: var(--font-display); font-size: 1.3rem; letter-spacing: 0.04em; color: #f3e7c6; }
+    p { font-size: 0.95rem; line-height: 1.4; color: var(--ink); }
   }
-  .tc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem;
-    h2 { font-family: var(--font-display); font-size: 1.25rem; letter-spacing: 0.04em; color: #f3e7c6; }
-    .tc-count { font-family: var(--font-mono); font-size: 0.8rem; color: var(--amber); white-space: nowrap; }
+  .tc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
+    .tc-chapter { font-family: var(--font-head); font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); span { color: var(--ink-dim); } }
+    .tc-clock { font-family: var(--font-mono); font-size: 0.72rem; white-space: nowrap; &.stopped { color: #9fd0ff; } &.running { color: var(--sonar); } }
   }
-  .tc-lead { color: #ffd58a !important; font-style: italic; }
-  .tc-goal { font-family: var(--font-head); letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.85rem !important; color: var(--sonar) !important; }
-  .tc-hint { color: var(--amber) !important; font-size: 0.85rem !important; }
-  .tc-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.15rem;
-    > button { width: auto; min-width: 120px; &.on { border-color: var(--sonar); color: var(--sonar); } }
-    .link-btn { min-width: 0; margin-left: auto; font-size: 0.85rem; color: var(--ink-dim); }
+  .tc-do { font-family: var(--font-head); letter-spacing: 0.04em; font-size: 1rem !important; color: #ffd27a !important;
+    &.then { color: var(--ink-dim) !important; font-size: 0.9rem !important; }
   }
-  &.st-weapons { border-color: #d89a6f; }
-  &.st-listener { border-color: #8fd8a8; }
-  &.st-chief { border-color: #c9b37a; }
+  .tc-wait { color: var(--ink-dim) !important; font-size: 0.85rem !important; font-style: italic; }
+  .tc-hint { color: var(--amber) !important; font-size: 0.88rem !important; }
+  .tc-list { margin: 0 0 0 1.2rem; font-size: 0.9rem; line-height: 1.45; color: var(--ink); }
+  .tc-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.2rem;
+    > button { width: auto; min-width: 104px; }
+    .tc-spacer { flex: 1; }
+    .link-btn { min-width: 0; font-size: 0.85rem; color: var(--ink-dim); }
+    .tc-leave { display: flex; gap: 0.4rem; align-items: center; font-size: 0.85rem; color: var(--ink-dim); button { width: auto; min-width: 0; padding: 0.35rem 0.7rem; } .danger { border-color: #8a2a20; color: #ffb3a6; } }
+  }
+  .tc-progress { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; i { display: block; height: 100%; background: linear-gradient(90deg, #c9902f, #ffd27a); } }
 }
-@media (max-width: 640px) { .tutorial-card { grid-template-columns: 1fr; .tc-face { flex-direction: row; } } }
-@media (prefers-reduced-motion: reduce) { .tutorial-card { animation: none; } }
+.tut-tucked { position: fixed; z-index: 91; left: 50%; transform: translateX(-50%); bottom: 16px; display: flex; gap: 0.6rem; align-items: center; padding: 0.4rem 0.5rem 0.4rem 0.9rem;
+  background: linear-gradient(170deg, #1c2a24, #0f1915); border: 1px solid #c9902f; border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  span { font-family: var(--font-head); font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); }
+  button { width: auto; padding: 0.35rem 0.8rem; font-size: 0.8rem; }
+}
+@media (max-width: 640px) {
+  .tut-card { grid-template-columns: 1fr; gap: 0.4rem; max-height: 52vh; .tc-face { flex-direction: row; } .tc-actions > button { min-width: 0; flex: 1; } }
+  .tut-tag { max-width: calc(100vw - 32px); }
+}
+@media (prefers-reduced-motion: reduce) { .tut-card, .tut-ring { animation: none !important; } }
 .chart-wrap { position: relative; border-radius: 6px; overflow: hidden; border: 3px solid #1a1208; box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8);
   &.mode-mark, &.mode-aim, &.mode-guide { cursor: crosshair; }
   &.mode-steer { cursor: pointer; }
@@ -323,7 +351,7 @@
     &.k-alarm { color: #ff9a8a; } &.k-damage { color: #ffb347; } &.k-attack { color: #ffe066; } &.k-contact { color: #8fe8b8; } &.k-call { color: #9fd0ff; }
   }
 }
-.room-toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%); z-index: 60; padding: 0.6rem 1.1rem; border-radius: 8px; background: #2a0f0b; border: 1px solid #8a2a20; color: #ffd0c8; font-family: var(--font-mono); }
+.room-toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%); z-index: 89; padding: 0.6rem 1.1rem; border-radius: 8px; background: #2a0f0b; border: 1px solid #8a2a20; color: #ffd0c8; font-family: var(--font-mono); }
 
 // ---- the dive and the end -------------------------------------------------------------------------
 .dive-overlay {

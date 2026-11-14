@@ -173,7 +173,9 @@ function emitNoise(state, events, noise) {
       const blur = (hasFault(b, 'sonar') ? 2 : 1) * (effectiveSpeed(b) >= 3 ? T.WIDTH_AT_FULL : 1);
       const width = clamp((T.WIDTH_BASE - T.WIDTH_PER_LEVEL * level - T.WIDTH_PER_SONAR * sp + T.WIDTH_PER_CELL * d) * blur, T.WIDTH_MIN, T.WIDTH_MAX);
       const truth = d < 0.01 ? rand(state) * 360 : bearing(b, noise);
-      const told = (truth + (rand(state) * 2 - 1) * width * 0.6 + 360) % 360;
+      // (the tutorial's training boat comes in sharp while the lessons teach crossing bearings)
+      const spread = state.tutorial && tutorial.sharpBearing(state, noise) ? 0.08 : 0.6;
+      const told = (truth + (rand(state) * 2 - 1) * width * spread + 360) % 360;
       contact = { id: nextId(state), t: r1(state.t), kind: noise.kind, bearing: r1(told), width: r1(width), ox: b.x, oy: b.y, near: d <= T.NEAR_CELLS, level };
     }
     if (noise.ref !== undefined) contact.ref = noise.ref;
@@ -208,8 +210,9 @@ function addFault(state, team, kind, events) {
 
 function hurt(state, team, damage, cause, events) {
   const b = state.subs[team];
-  // Training: our boat is shaken and hurt, but never sunk.
-  if (state.tutorial && team === 'alpha') damage = Math.min(damage, b.hull - 1);
+  // Training: our boat is shaken and hurt, but never sunk, and the training boat stays afloat
+  // until the practice hunt.
+  if (state.tutorial && (team === 'alpha' || tutorial.spareTarget(state))) damage = Math.min(damage, b.hull - 1);
   if (damage <= 0 || b.hull <= 0) return;
   b.hull = Math.max(0, b.hull - damage);
   events.push(roomFx('hit', { team, damage, hull: b.hull, cause }));
@@ -449,18 +452,27 @@ function call(state, team, station, callId) {
   return ok([teamFx(team, 'call', { station, call: callId })]);
 }
 
-// The tutorial: Next on a step that is only read, or Skip a lesson.
+// The tutorial: Next on a step that is only read, Skip a step (done for the player), Back a step,
+// or End it (the player leaves for the deck: the lesson is over, with no winner).
+const TUTORIAL_ACTIONS = ['next', 'skip', 'back', 'end'];
 const tutorialKit = () => ({ A: ACTIONS, teamFx, addFault, effectiveSpeed, map: (s) => getMap(s.mapId) });
 
 function tutorialAct(state, team, action) {
   const no = live(state, 'tutorial');
   if (no) return no;
   if (!state.tutorial || team !== 'alpha') return reject('tutorial', 'not-tutorial');
-  if (action !== 'next' && action !== 'skip') return reject('tutorial', 'bad-action');
+  if (!TUTORIAL_ACTIONS.includes(action)) return reject('tutorial', 'bad-action');
+  if (action === 'end') {
+    state.over = { winner: null, t: r1(state.t), how: 'left' };
+    return ok([{ scope: 'room', event: 'game-over', payload: { winner: null } }]);
+  }
   const events = [];
   if (!tutorial.act(state, action, events, tutorialKit())) return reject('tutorial', 'not-now');
   return ok(events);
 }
+
+/** Whether the clock is stopped (a tutorial step being read, or waiting on the player). */
+const isPaused = (state) => tutorial.paused(state);
 
 // ---- the clock ---------------------------------------------------------------------------------
 function tickBoat(state, team, dt, events) {
@@ -705,6 +717,12 @@ function tickWhales(state, dt, events) {
 function tick(state, dt = T.TICK_SECONDS, brains = null) {
   if (state.over) return [];
   const events = [];
+  // The tutorial stops the clock while its player reads a step or finds the control it asks for:
+  // nothing moves, and the step moves on the moment its goal is met.
+  if (tutorial.paused(state)) {
+    tutorial.check(state, events, tutorialKit());
+    return events;
+  }
   state.t += dt;
   for (const team of TEAMS) tickBoat(state, team, dt, events);
   tickTorpedoes(state, dt, events);
@@ -799,6 +817,8 @@ module.exports = {
   seekerTarget,
   hasFault,
   isAuto,
+  isPaused,
+  TUTORIAL_ACTIONS,
   emitNoise,
   blast,
   addFaults,
