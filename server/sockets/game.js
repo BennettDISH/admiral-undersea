@@ -19,6 +19,7 @@ const { modeOf } = require('../game/modes');
 const gameStates = new Map();
 const loading = new Map(); // game code -> the read of its stored match in progress
 const running = new Set(); // codes the clock is ticking
+const tickErrors = new Map(); // game code -> { inRow: ticks in a row that threw, loggedAt }
 const presence = new Map(); // game code -> Map(socket id -> { team, roles })
 
 const roomName = (code) => `game:${code}`;
@@ -26,35 +27,69 @@ const TICK_MS = Math.round(TUNING.TICK_SECONDS * 1000);
 const VIEW_EVERY_SECONDS = 0.2;     // each team's view goes out five times a second of play
 const SAVE_RUNNING_EVERY_MS = 3000; // a running match is written this often
 const PAUSE_AFTER_MS = 60 * 1000;   // a match with nobody aboard stops ticking after this
+// A tick that throws is tried again on the next one; this many in a row stop the match's clock, and
+// the room hears 'match-error'. A rejoin starts the clock again. The error itself stays in the log,
+// once a minute per match however often a broken one is rejoined.
+const TICK_ERRORS_BEFORE_STALL = 3;
+const TICK_ERROR_LOG_MS = 60 * 1000;
+const STALL_MESSAGE = 'The boat stalled: rejoin to carry on.';
 
 // ---- keeping matches in the database ---------------------------------------
 // Changes are collected and written together after SAVE_DELAY_MS, one write per game however
 // many landed. A restart loses at most that long; a shutdown writes what is waiting.
 const SAVE_DELAY_MS = 750;
+// A write that failed is tried again after RETRY_FIRST_MS, then twice as long each time it fails
+// again, up to RETRY_MAX_MS: a paused or finished match changes no more, so nothing else would
+// write it, and a restart would lose its last state. A new change is written at the usual pace.
+const RETRY_FIRST_MS = 2000;
+const RETRY_MAX_MS = 60 * 1000;
 const dirty = new Set();
+const retries = new Map(); // game code -> { tries, at }: its last write failed; not tried before `at`
 let saveTimer = null;
+let saveAt = 0; // when saveTimer fires
 let writes = Promise.resolve(); // writes run one after another, so an old one never lands over a newer
+
+// Flush in `delay` ms, or sooner if a flush is already set for sooner.
+function scheduleFlush(delay) {
+  const at = Date.now() + delay;
+  if (saveTimer && saveAt <= at) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveAt = at;
+  saveTimer = setTimeout(() => { saveTimer = null; flushMatches({ due: true }); }, delay);
+  saveTimer.unref?.();
+}
 
 function markDirty(gameCode) {
   const state = gameStates.get(gameCode);
   if (!state) return;
   state.touchedAt = Date.now();
   dirty.add(gameCode);
-  if (!saveTimer) {
-    saveTimer = setTimeout(() => { saveTimer = null; flushMatches(); }, SAVE_DELAY_MS);
-    saveTimer.unref?.();
-  }
+  retries.delete(gameCode);
+  scheduleFlush(SAVE_DELAY_MS);
 }
 
-// Write every match waiting to be written; resolves when they have been. Never rejects.
-function flushMatches() {
+// Write the matches waiting to be written; resolves when they have been. Never rejects. A direct
+// call (a shutdown, a game's end) writes every one; the timer (`due`) leaves a match whose last
+// write failed until its retry time. A write that fails puts its match back in line.
+function flushMatches({ due = false } = {}) {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-  const codes = [...dirty];
-  dirty.clear();
-  writes = writes.then(() => Promise.all(codes.map((code) => {
+  const now = Date.now();
+  const codes = [...dirty].filter((code) => !due || !(retries.get(code)?.at > now));
+  for (const code of codes) dirty.delete(code);
+  writes = writes.then(() => Promise.all(codes.map(async (code) => {
     const state = gameStates.get(code);
-    return state ? matchStore.save(code, state) : null;
-  }))).catch((err) => console.error('match write error:', err));
+    if (!state) return;
+    if (await matchStore.save(code, state)) { retries.delete(code); return; }
+    if (gameStates.get(code) !== state) return; // let go of meanwhile
+    const tries = (retries.get(code)?.tries ?? 0) + 1;
+    retries.set(code, { tries, at: Date.now() + Math.min(RETRY_FIRST_MS * 2 ** (tries - 1), RETRY_MAX_MS) });
+    dirty.add(code);
+  }))).catch((err) => console.error('match write error:', err)).then(() => {
+    if (!dirty.size) return;
+    let next = Infinity;
+    for (const code of dirty) next = Math.min(next, retries.get(code)?.at ?? 0);
+    scheduleFlush(Math.max(next - Date.now(), SAVE_DELAY_MS));
+  });
   return writes;
 }
 
@@ -68,6 +103,8 @@ async function sweepMatches(now = Date.now()) {
     if (finished || now - touched > matchStore.IDLE_TTL_MS) {
       gameStates.delete(code);
       dirty.delete(code);
+      retries.delete(code);
+      tickErrors.delete(code);
       running.delete(code);
       dropped += 1;
     }
@@ -182,6 +219,12 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
   }
 
   // ---- the clock -------------------------------------------------------------
+  // A tick that ran (or a clock started afresh) ends a run of errors; when one was last logged is kept.
+  function goodTick(code) {
+    const seen = tickErrors.get(code);
+    if (seen) seen.inRow = 0;
+  }
+
   function tickAll() {
     const now = Date.now();
     for (const code of running) {
@@ -197,25 +240,40 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
         const events = engine.tick(state, TUNING.TICK_SECONDS, ai);
         emitEvents(code, events);
         // A tutorial with its clock stopped: nothing to send or save until its player does something.
-        if (engine.isPaused(state) && !events.length) continue;
+        if (engine.isPaused(state) && !events.length) { goodTick(code); continue; }
         // Five views a second of play, and one at once when the crew changes, something public
         // happens, or the tutorial moves on a step.
         const stepped = events.some((e) => e.event === 'fx' && e.payload.type === 'tutorial');
         if (awayChanged || stepped || state.t - (state.viewT ?? -1) >= VIEW_EVERY_SECONDS - 1e-6 || events.some((e) => e.scope === 'room')) sendViews(code, state);
         if (now - (state.savedAt || 0) >= SAVE_RUNNING_EVERY_MS || state.over) { state.savedAt = now; markDirty(code); }
+        goodTick(code);
       } catch (err) {
-        console.error(`tick error in ${code}:`, err);
-        running.delete(code);
+        const seen = tickErrors.get(code) ?? { inRow: 0, loggedAt: -Infinity };
+        tickErrors.set(code, seen);
+        seen.inRow += 1;
+        if (now - seen.loggedAt >= TICK_ERROR_LOG_MS) { seen.loggedAt = now; console.error(`tick error in ${code}:`, err); }
+        if (seen.inRow >= TICK_ERRORS_BEFORE_STALL) stall(code, seen);
       }
     }
   }
+
+  // Stop a match's clock after its ticks kept throwing: keep what it has, and tell the room why
+  // the boat froze (never the error itself).
+  function stall(code, seen) {
+    seen.inRow = 0;
+    running.delete(code);
+    const t = gameStates.get(code)?.t;
+    io.to(roomName(code)).emit('match-error', { reason: 'stalled', message: STALL_MESSAGE, t: Number.isFinite(t) ? t : null });
+    markDirty(code);
+  }
+
   // Tests pass clock: false and call _tickAll themselves.
   const clock = runClock ? setInterval(tickAll, TICK_MS) : null;
   clock?.unref?.();
 
   function startTicking(gameCode) {
     const state = gameStates.get(gameCode);
-    if (state?.subs && !state.over) { state.emptySince = null; running.add(gameCode); }
+    if (state?.subs && !state.over) { state.emptySince = null; goodTick(gameCode); running.add(gameCode); }
   }
 
   // ---- a match back from the database (after a restart) ----------------------
