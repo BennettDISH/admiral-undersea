@@ -265,6 +265,29 @@ test('a missed shot comes back round to Load, and says so', () => {
   assert.equal(s.tutorial.step, 'load');
 });
 
+test('shots at the training boat before the torpedo room still leave the torpedo room a hit to score', () => {
+  const s = lesson();
+  let torpedoRoom = false;
+  for (let i = 0; i < 3000 && !s.over && s.tutorial.step !== 'engine-fire'; i++) {
+    if (s.tutorial.step === 'ping') torpedoRoom = true;
+    // An eager player: before the torpedo room, a tube always loading and a shot at the training boat when one is ready.
+    if (!torpedoRoom) {
+      const me = s.subs.alpha;
+      const empty = me.tubes.findIndex((t) => t.state === 'empty');
+      if (empty >= 0) engine.loadTube(s, 'alpha', empty);
+      const ready = me.tubes.findIndex((t) => t.state === 'ready');
+      if (ready >= 0 && !s.torpedoes.some((tp) => tp.team === 'alpha')) engine.fire(s, 'alpha', ready, { x: s.subs.bravo.x, y: s.subs.bravo.y });
+    }
+    if (s.tutorial.step === 'fire') assert.ok(s.subs.bravo.hull >= 2, `the training boat has ${s.subs.bravo.hull} hull as the shot is lined up`);
+    byTheBook(s);
+    engine.tick(s, 0.1, ai);
+  }
+  assert.ok(torpedoRoom);
+  assert.equal(s.tutorial.step, 'engine-fire', `stuck at ${s.tutorial.step} after ${s.tutorial.misses} misses`);
+  assert.equal(s.tutorial.lastShot, 'hit');
+  assert.equal(s.subs.bravo.hull, 1, 'and it is still kept afloat until the hunt');
+});
+
 test('End leaves the lesson with no winner', () => {
   const s = lesson();
   playTo(s, 'listen-bearing');

@@ -147,7 +147,12 @@ const LESSON = [
   { id: 'aim', kind: 'read', station: 'weapons' },
   {
     id: 'fire', kind: 'do', station: 'weapons',
-    enter: (s) => { s.tutorial.targetHull = them(s).hull; },
+    enter: (s) => {
+      // A shot taken at it in an earlier lesson may have left it on the one hull it is kept afloat
+      // with, where no hit could show: its crew patches it up to two for this shot.
+      them(s).hull = Math.max(them(s).hull, 2);
+      s.tutorial.targetHull = them(s).hull;
+    },
     done: ourTorpedo,
     auto: (s, k) => {
       const i = me(s).tubes.findIndex((tb) => tb.state === 'ready');
