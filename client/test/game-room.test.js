@@ -2,7 +2,7 @@
 // reconnect, since the server forgets a socket's game and team when the connection drops.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { joinGameOnConnect } from '../src/lib/gameRoom.js'
+import { joinGameOnConnect, joinGame, stallNotice, stallOver, STALL_NOTE } from '../src/lib/gameRoom.js'
 
 function fakeSocket(connected) {
   const listeners = {}
@@ -46,4 +46,25 @@ test('leaving the page stops the rejoins', () => {
   stop()
   socket.fire('connect')
   assert.equal(socket.emitted.length, 0)
+})
+
+// A stalled match (the server's 'match-error'): the notice, its Rejoin, and what ends it.
+test('Rejoin joins the game again', () => {
+  const socket = fakeSocket(true)
+  joinGame(socket, 'ABC123')
+  assert.deepEqual(socket.emitted, [{ ev: 'join-game', payload: { gameCode: 'ABC123' } }])
+})
+
+test('a stall notice says to rejoin, at the time the server stopped, else the last view\'s', () => {
+  assert.deepEqual(stallNotice({ reason: 'stalled', message: '<b>anything</b>', t: 42.5 }, 40), { message: STALL_NOTE, t: 42.5 })
+  assert.equal(STALL_NOTE, 'The boat stalled: rejoin to carry on.')
+  assert.equal(stallNotice({ t: null }, 40).t, 40)
+  assert.equal(stallNotice(undefined, undefined).t, 0)
+})
+
+test('a play during the stall keeps the notice; the clock moving again, or a full view, ends it', () => {
+  const stall = stallNotice({ t: 42.5 })
+  assert.equal(stallOver(stall, { t: 42.5 }), false, 'a view from a play while stopped')
+  assert.equal(stallOver(stall, { t: 42.6 }), true, 'someone rejoined and the clock runs')
+  assert.equal(stallOver(stall, { t: 42.5, contacts: [] }), true, 'this player\'s own rejoin')
 })

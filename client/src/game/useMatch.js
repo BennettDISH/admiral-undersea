@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import api from '../services/api'
 import socket, { connectSocket } from '../services/socket'
-import { joinGameOnConnect } from '../lib/gameRoom'
+import { joinGameOnConnect, joinGame, stallNotice, stallOver } from '../lib/gameRoom'
 
 const CONTACT_TTL = 45
 
@@ -14,8 +14,8 @@ export function mergeContacts(list, incoming, now) {
 
 /**
  * A match from the socket: the game row and our seat (REST), our team's view five times a
- * second, the plot's contacts, every 'fx' event to whoever listens (onFx), the end, and the
- * server's refusals.
+ * second, the plot's contacts, every 'fx' event to whoever listens (onFx), the end, the
+ * server's refusals, and a stalled clock (with rejoin to start it again).
  */
 export function useMatch(code, user) {
   const [game, setGame] = useState(null)
@@ -25,6 +25,7 @@ export function useMatch(code, user) {
   const [contacts, setContacts] = useState([])
   const [over, setOver] = useState(null)
   const [refusal, setRefusal] = useState(null)
+  const [stall, setStall] = useState(null) // { message, t }: the server stopped this match's clock
   const [joins, setJoins] = useState(0) // a full view comes after each (re)join
   const fxListeners = useRef(new Set())
   const viewRef = useRef(null)
@@ -46,6 +47,7 @@ export function useMatch(code, user) {
       if (!v || v.v !== 2) return
       viewRef.current = v
       setView(v)
+      setStall((s) => (s && stallOver(s, v) ? null : s))
       if (v.contacts) { setContacts(mergeContacts([], v.contacts, v.t)); setJoins((n) => n + 1) }
       if (v.over) setOver((o) => o || v.over)
     }
@@ -55,11 +57,13 @@ export function useMatch(code, user) {
     }
     const onOver = ({ winner }) => setOver((o) => o || { winner })
     const onRefused = (r) => setRefusal({ ...r, at: Date.now() })
+    const onStall = (p) => setStall(stallNotice(p, viewRef.current?.t))
     socket.on('game-state', onView)
     socket.on('game-started', onView)
     socket.on('fx', onFx)
     socket.on('game-over', onOver)
     socket.on('action-rejected', onRefused)
+    socket.on('match-error', onStall)
     return () => {
       gone = true
       stopJoining()
@@ -68,11 +72,13 @@ export function useMatch(code, user) {
       socket.off('fx', onFx)
       socket.off('game-over', onOver)
       socket.off('action-rejected', onRefused)
+      socket.off('match-error', onStall)
     }
   }, [code, user.id])
 
   const send = useCallback((event, payload = {}) => socket.emit(event, { gameCode: code, ...payload }), [code])
   const onFx = useCallback((fn) => { fxListeners.current.add(fn); return () => fxListeners.current.delete(fn) }, [])
+  const rejoin = useCallback(() => joinGame(socket, code), [code])
 
-  return { game, players, seat, view, contacts, over, refusal, send, onFx, joins }
+  return { game, players, seat, view, contacts, over, refusal, stall, rejoin, send, onFx, joins }
 }

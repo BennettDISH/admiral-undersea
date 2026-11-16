@@ -352,6 +352,10 @@
   }
 }
 .room-toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%); z-index: 89; padding: 0.6rem 1.1rem; border-radius: 8px; background: #2a0f0b; border: 1px solid #8a2a20; color: #ffd0c8; font-family: var(--font-mono); }
+.room-stall { position: fixed; left: 50%; top: 5.5rem; transform: translateX(-50%); z-index: 88; display: flex; align-items: center; gap: 0.9rem; width: max-content; max-width: calc(100% - 2rem);
+  padding: 0.6rem 0.7rem 0.6rem 1.1rem; border-radius: 8px; background: #2a0f0b; border: 1px solid #8a2a20; color: #ffd0c8; font-family: var(--font-mono);
+  button { width: auto; flex: none; padding: 0.4rem 1rem; }
+}
 
 // ---- the dive and the end -------------------------------------------------------------------------
 .dive-overlay {

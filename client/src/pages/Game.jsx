@@ -48,7 +48,7 @@ function SoundControls() {
 function Game({ user }) {
   const { code } = useParams()
   const navigate = useNavigate()
-  const { game, players, seat, view, contacts, over, refusal, send, onFx, joins } = useMatch(code, user)
+  const { game, players, seat, view, contacts, over, refusal, stall, rejoin, send, onFx, joins } = useMatch(code, user)
   const audio = getAudio()
   useScene('game')
   useEffect(() => { loadArt() }, [])
@@ -341,6 +341,12 @@ function Game({ user }) {
       </div>
 
       {toast && <div className="room-toast" role="status">{toast}</div>}
+      {stall && !over && (
+        <div className="room-stall" role="alert">
+          <span>{stall.message}</span>
+          <button className="primary" onClick={rejoin}>Rejoin</button>
+        </div>
+      )}
       {view.t < 3.2 && !over && !training && <div className="dive-overlay" aria-hidden="true"><div className="dive-gauge" /><h1>DIVE! DIVE!</h1></div>}
 
       {end && (
