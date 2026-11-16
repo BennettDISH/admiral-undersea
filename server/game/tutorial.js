@@ -75,7 +75,10 @@ const LESSON = [
     id: 'cross-turn', kind: 'do', station: 'helm',
     enter: (s, k) => { s.tutorial.want = { heading: crossHeading(s, k) }; },
     done: (s, tu) => me(s).heading === tu.want?.heading,
-    auto: (s, k, tu) => k.A.setHeading(s, 'alpha', tu.want.heading),
+    auto: (s, k, tu) => {
+      if (tu.want?.heading == null) tu.want = { heading: crossHeading(s, k) };
+      return k.A.setHeading(s, 'alpha', tu.want.heading);
+    },
   },
   { id: 'cross-slow', kind: 'do', station: 'helm', done: (s) => me(s).ordered >= 1, auto: (s, k) => k.A.setSpeed(s, 'alpha', 1) },
   { id: 'cross-run', kind: 'watch', needsWay: true, done: (s, tu) => chebyshev(me(s), tu.from) >= 3 },
@@ -100,7 +103,7 @@ const LESSON = [
     id: 'evade-decoy', kind: 'do', station: 'weapons',
     enter: (s) => { s.tutorial.want = { heading: threatHeading(s) }; },
     done: (s) => s.decoys.some((d) => d.team === 'alpha') || me(s).decoyCooldown > 0,
-    auto: (s, k, tu) => k.A.launchDecoy(s, 'alpha', tu.want.heading),
+    auto: (s, k, tu) => k.A.launchDecoy(s, 'alpha', tu.want?.heading ?? threatHeading(s)),
   },
   { id: 'evade-watch', kind: 'watch', done: (s, tu) => !s.torpedoes.some((tp) => tp.id === tu.shot) },
   {
@@ -348,13 +351,10 @@ function snapshot(state) {
   return copy({ state: kept, tutorial: tu });
 }
 
-function go(state, id, events, kit, how = 'done') {
-  const tu = state.tutorial;
-  const to = BY_ID.get(id);
-  if (!to || tu.step === id) return;
-  const from = tu.step;
-  Object.assign(tu, {
-    step: id,
+// What a step sets up as it begins: where the boat stands, and the step's own enter.
+function begin(state, to, events, kit) {
+  Object.assign(state.tutorial, {
+    step: to.id,
     since: state.t,
     from: { x: me(state).x, y: me(state).y },
     fromHeading: me(state).heading,
@@ -363,8 +363,16 @@ function go(state, id, events, kit, how = 'done') {
     want: null,
     fullAt: null,
   });
-  if (how === 'skip') tu.skipped.push(from);
   if (to.enter) to.enter(state, kit, events);
+}
+
+function go(state, id, events, kit, how = 'done') {
+  const tu = state.tutorial;
+  const to = BY_ID.get(id);
+  if (!to || tu.step === id) return;
+  const from = tu.step;
+  if (how === 'skip') tu.skipped.push(from);
+  begin(state, to, events, kit);
   const history = [...(tu.history || []), snapshot(state)];
   tu.history = history.slice(-HISTORY);
   events.push(kit.teamFx('alpha', 'tutorial', { step: id, from, how }));
@@ -392,16 +400,19 @@ function nextOf(state, step) {
 }
 
 // ---- the clock -------------------------------------------------------------------------------
-/** A stored lesson from before the step-by-step tutorial, brought up to date. */
-function normalise(state) {
+/**
+ * A stored lesson from before the step-by-step tutorial, brought up to date: it begins its chapter's
+ * first step as that step would begin (a turn's heading worked out, the ping charged).
+ */
+function normalise(state, events, kit) {
   const tu = state.tutorial;
   if (!tu) return;
-  if (!BY_ID.has(tu.step)) {
-    tu.step = OLD_STEPS[tu.step] || 'welcome';
-    tu.history = [];
-  }
   if (!Array.isArray(tu.skipped)) tu.skipped = [];
   if (typeof tu.misses !== 'number') tu.misses = 0;
+  if (!BY_ID.has(tu.step)) {
+    begin(state, BY_ID.get(OLD_STEPS[tu.step] || 'welcome'), events, kit);
+    tu.history = [];
+  }
   if (tu.seenId == null) tu.seenId = state.nextId;
   if (!Array.isArray(tu.history) || !tu.history.length) tu.history = [snapshot(state)];
 }
@@ -415,7 +426,7 @@ function paused(state) {
 
 /** The goal of the step on now: met, it moves on (a step met at once moves on again, and so on). */
 function check(state, events, kit) {
-  normalise(state);
+  normalise(state, events, kit);
   for (let guard = 0; guard < 4 && !state.over; guard++) {
     const tu = state.tutorial;
     const step = stepOf(state);
@@ -427,7 +438,7 @@ function check(state, events, kit) {
 /** Every tick the clock runs, after the boats and torpedoes have moved. */
 function tick(state, dt, events, kit) {
   if (!state.tutorial || state.over) return;
-  normalise(state);
+  normalise(state, events, kit);
   // a torpedo hit on us (the practice torpedo, from the charge on): the next card says so
   if (events.some((e) => e.event === 'fx' && e.payload.type === 'hit' && e.payload.team === 'alpha' && e.payload.cause === 'torpedo')) {
     state.tutorial.hitInCharge = true;
@@ -462,7 +473,7 @@ function spareTarget(state) {
 function act(state, action, events, kit) {
   const tu = state.tutorial;
   if (!tu || state.over) return null;
-  normalise(state);
+  normalise(state, events, kit);
   const step = stepOf(state);
   if (action === 'back') return back(state, events, kit) ? state.tutorial.step : null;
   if (action !== 'next' && action !== 'skip') return null;

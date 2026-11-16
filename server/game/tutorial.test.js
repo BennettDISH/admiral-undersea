@@ -300,4 +300,51 @@ test('a lesson stored before the step-by-step tutorial picks up at the start of 
   engine.tick(s, 0.1, ai);
   assert.equal(s.tutorial.step, 'ping');
   assert.equal(s.tutorial.history.length, 1);
+  // the chapter's start is set up as it would be: the ping charged, so Skip pings for them
+  assert.equal(s.subs.alpha.pingCharge, 1);
+  assert.equal(engine.tutorialAct(s, 'alpha', 'skip').ok, true);
+  assert.equal(s.tutorial.step, 'ping-mark');
+});
+
+test('an old lesson stored at "cross" gets the heading its turn asks for, and Skip works', () => {
+  // as stored before the step-by-step tutorial: the old step name, no history, no heading wanted
+  const oldCross = (heading) => {
+    const s = lesson();
+    s.subs.alpha.heading = heading;
+    Object.assign(s.tutorial, { step: 'cross', history: undefined, seenId: undefined });
+    delete s.tutorial.want;
+    engine.tick(s, 0.1, ai);
+    return s;
+  };
+  // (a boat already on the heading it asks for moves straight on: start it on another)
+  const start = [0, 1, 2, 3, 4, 5, 6, 7].find((h) => oldCross(h).tutorial.step === 'cross-turn');
+  assert.notEqual(start, undefined);
+  for (const how of ['turn', 'skip']) {
+    const s = oldCross(start);
+    assert.equal(typeof view(s).want?.heading, 'number', 'the card can say which way to turn');
+    if (how === 'turn') {
+      for (let h = 0; h < 8 && s.tutorial.step === 'cross-turn'; h++) {
+        engine.setHeading(s, 'alpha', h);
+        engine.tick(s, 0.1, ai);
+      }
+    } else {
+      assert.equal(engine.tutorialAct(s, 'alpha', 'skip').ok, true);
+    }
+    assert.equal(s.tutorial.step, 'cross-slow', how);
+  }
+});
+
+test('Skip never throws on a turn step that lost its heading; it works the heading out again', () => {
+  const s = lesson();
+  playTo(s, 'cross-turn');
+  s.tutorial.want = null;
+  let r;
+  assert.doesNotThrow(() => { r = engine.tutorialAct(s, 'alpha', 'skip'); });
+  assert.equal(r.ok, true);
+  assert.equal(s.tutorial.step, 'cross-slow');
+  const t = lesson();
+  playTo(t, 'evade-decoy');
+  t.tutorial.want = null;
+  assert.doesNotThrow(() => { r = engine.tutorialAct(t, 'alpha', 'skip'); });
+  assert.equal(r.ok, true);
 });
