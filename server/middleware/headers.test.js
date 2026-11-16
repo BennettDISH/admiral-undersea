@@ -62,8 +62,9 @@ test('index.js mounts the log and the headers first, the 404 after the routes an
   assert.ok(at(/app\.use\(securityHeaders\(\)\)/) < at(/app\.use\('\/api\/auth'/));
   assert.ok(at(/app\.use\('\/api', sameOriginWrites\(/) < at(/app\.use\('\/api\/auth'/), 'the write guard is before every API route');
   assert.ok(at(/app\.get\('\/api\/health'/) < at(/app\.use\('\/api', apiNotFound\(\)\)/));
-  assert.ok(at(/app\.use\('\/api', apiNotFound\(\)\)/) < at(/app\.use\(spaFallback\(/));
-  assert.ok(at(/app\.use\(spaFallback\(/) < at(/app\.use\(errorHandler\(/));
+  assert.ok(at(/app\.use\('\/api', apiNotFound\(\)\)/) < at(/app\.use\(buildFiles\(/));
+  assert.ok(at(/app\.use\(wp\.adminPage\(/) < at(/app\.use\(buildFiles\(/), 'the /admin gate decides before the page goes out');
+  assert.ok(at(/app\.use\(buildFiles\(/) < at(/app\.use\(errorHandler\(/));
   assert.ok(!/morgan|helmet/.test(source), 'morgan and helmet are gone');
 });
 

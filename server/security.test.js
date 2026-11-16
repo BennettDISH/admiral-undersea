@@ -75,6 +75,10 @@ test('security', async (t) => {
     },
     guests: { refused: ADMIN_DATA },
     headers: { path: '/' },
+    // the build as the kit serves it (buildFiles): /assets a year, the page no-store, a missing file 404
+    build: {},
+    // no /api answer opens itself to another site's page (CORS is for FRONTEND_URL only)
+    cors: {},
   });
   for (const check of checks) await t.test(check.name, check.run);
 });

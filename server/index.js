@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const {
-  trustOneProxy, requestLog, sameOriginWrites, health, apiNotFound, assetNotFound, spaFallback, errorHandler,
+  trustOneProxy, requestLog, sameOriginWrites, health, apiNotFound, buildFiles, errorHandler,
 } = require('fleet-kit/server');
 
 // The session cookie is signed with this. In production a real secret is mandatory: the game
@@ -81,17 +81,11 @@ app.use('/api', apiNotFound());
 // opens the admin screen for it.
 app.use(wp.adminPage({ pages: /^\/admin\/?$/i }));
 
-// Vite names every built asset after its content, so a browser can keep them for good instead
-// of re-checking the whole bundle on each visit. A missing one is a 404: index.html in its
-// place is a page the browser refuses to run as a script.
-app.use('/assets', express.static(path.join(__dirname, '../client/dist/assets'), { immutable: true, maxAge: '1y' }));
-app.use('/assets', assetNotFound());
-
-// Serve static files from React build
-app.use(express.static(path.join(__dirname, '../client/dist')));
-
-// SPA fallback: index.html for every other page, never kept by the browser.
-app.use(spaFallback(path.join(__dirname, '../client/dist/index.html')));
+// The built client (fleet-kit's buildFiles): Vite's hashed files under /assets kept a year, a
+// missing one a 404 (index.html in its place is a page the browser refuses to run as a script),
+// the page never kept, the art, sounds and pane-quiet.js asked about on each load, and the page
+// for every other address (the client's own routes). Socket.IO answers /socket.io/ before Express.
+app.use(buildFiles(path.join(__dirname, '../client/dist'), { skip: ['/api', '/socket.io'] }));
 
 // Last: any error a route forwards is logged with the request id and answered in JSON, never
 // with the error itself.
