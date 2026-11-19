@@ -245,7 +245,7 @@ test('teams and stations are picked in the lobby only; against the AI everyone c
   await p.call('select-roles', { gameCode: code, roles: ['listener'] });
   assert.equal(seats[code][9].roles, 'helm,chief');
 
-  const solo = newGame('STAT08', { game_mode: 'vs-ai' }, {});
+  const solo = newGame('STAT08', { game_mode: 'vs-ai-easy' }, {});
   const [q] = await seated(solo, 10);
   await q.call('select-team', { gameCode: solo, team: 'bravo' });
   assert.equal(lastRejection(q).reason, 'ai-boat');
@@ -254,7 +254,7 @@ test('teams and stations are picked in the lobby only; against the AI everyone c
 });
 
 test('the clock ticks a running match and sends each team its own view and its own contacts', async () => {
-  const code = newGame('STAT09', { game_mode: 'vs-ai' }, { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' } });
+  const code = newGame('STAT09', { game_mode: 'vs-ai-easy' }, { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' } });
   const [me] = await started(code, 1);
   const s = match(code);
   assert.equal(s.vsAi, true);
@@ -296,7 +296,7 @@ test('a station whose people have all gone is handed to the auto-crew, and hande
 });
 
 test('one player at several stations works the one on screen; the auto-crew covers the others, never the helm', async () => {
-  const code = newGame('STAT12', { game_mode: 'vs-ai' }, { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' } })
+  const code = newGame('STAT12', { game_mode: 'vs-ai-easy' }, { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' } })
   const [me] = await started(code, 1)
   const s = match(code)
   await me.call('focus', { gameCode: code, station: 'listener' })
@@ -375,7 +375,7 @@ test('the tutorial: its player presses Next, Skip, Back and End; nobody else can
 })
 
 test('a match with nobody aboard stops ticking after a while, and starts again when someone joins', async () => {
-  const code = newGame('STAT11', { game_mode: 'vs-ai' }, { 1: { team: 'alpha', roles: 'helm' } });
+  const code = newGame('STAT11', { game_mode: 'vs-ai-easy' }, { 1: { team: 'alpha', roles: 'helm' } });
   const [me] = await started(code, 1);
   const s = match(code);
   me.drop();

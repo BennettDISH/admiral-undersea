@@ -13,7 +13,7 @@ import { LINES, speakerOf } from '../game/voice'
 import { chartFocus } from '../game/tutorial'
 import { loadArt } from '../game/sprites'
 import {
-  STATIONS, STATION_INFO, TEAM_INFO, HULL_MAX, MATCH_SECONDS, CALLS, chart, headingFor, bearing, clockText, enemyOf, modeId,
+  STATIONS, STATION_INFO, TEAM_INFO, HULL_MAX, MATCH_SECONDS, CALLS, chart, headingFor, bearing, clockText, enemyOf,
 } from '../game/rules'
 
 const SHAKES = { big: { px: 10, ms: 600 }, small: { px: 4, ms: 380 } }
@@ -255,7 +255,7 @@ function Game({ user }) {
       setToast(err.response?.data?.error || 'Could not make a new game')
     }
   }
-  const mode = modeId(game?.game_mode)
+  const mode = game?.game_mode || ''
   const againMode = /^vs-ai-/.test(mode) ? mode : 'vs-ai-normal'
 
   return (

@@ -30,7 +30,6 @@ function generateGameCode() {
 // Create a new game
 router.post('/create', async (req, res) => {
   const sameRoom = req.body?.sameRoom ?? false;
-  // An old page may still ask for 'vs-ai' or 'vs-ai-veteran': they are stored as Easy and Hard.
   const gameMode = modeToStore(req.body?.gameMode ?? DEFAULT_MODE);
   const userId = req.user.id;
 

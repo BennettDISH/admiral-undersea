@@ -53,9 +53,21 @@ test('a game is made with the mode and room setting asked for', async () => {
   }
 });
 
-test("an old page's mode names still make a game, stored as the difficulty they meant", async () => {
-  assert.strictEqual((await create({ gameMode: 'vs-ai' })).body.game.game_mode, 'vs-ai-easy');
-  assert.strictEqual((await create({ gameMode: 'vs-ai-veteran' })).body.game.game_mode, 'vs-ai-hard');
+test('games stored under the old mode names are renamed on boot to what they are played as', async () => {
+  const { rows: [u] } = await db.query('SELECT id FROM users LIMIT 1', []);
+  const old = { 'vs-ai': 'vs-ai-easy', 'vs-ai-veteran': 'vs-ai-hard', 'turn-based': 'crews', live: 'crews' };
+  for (const [i, name] of Object.keys(old).entries()) {
+    await db.query("INSERT INTO games (code, status, game_mode, created_by) VALUES ($1, 'finished', $2, $3)", [`OLDM${i}`, name, u.id]);
+  }
+  await initDb();
+  await initDb(); // and again: a no-op
+  for (const [i, name] of Object.keys(old).entries()) {
+    const { rows: [g] } = await db.query('SELECT game_mode FROM games WHERE code = $1', [`OLDM${i}`]);
+    assert.strictEqual(g.game_mode, old[name], name);
+  }
+  const { rows: [fresh] } = await db.query("INSERT INTO games (code, created_by) VALUES ('OLDMX', $1) RETURNING game_mode", [u.id]);
+  assert.strictEqual(fresh.game_mode, 'vs-ai-normal', 'the column default is a mode we play');
+  await db.query("DELETE FROM games WHERE code LIKE 'OLDM%'", []);
 });
 
 test('left out, the options default to playing the AI on Normal, online', async () => {
@@ -65,10 +77,10 @@ test('left out, the options default to playing the AI on Normal, online', async 
   assert.strictEqual(r.body.game.same_room, false);
 });
 
-test('a mode the game does not play is refused, not stored (the old turn-based one too)', async () => {
+test('a mode the game does not play is refused, not stored (the old names too)', async () => {
   const before = (await db.query('SELECT COUNT(*)::int AS n FROM games', [])).rows[0].n;
   // case, made-up levels, other types, and the names every object has ('constructor', '__proto__')
-  for (const gameMode of ['banana', 'VS-AI', 'Tutorial', 'vs-ai-insane', 'vs-ai-', 42, ['crews'], { tutorial: true }, 'turn-based', 'live', 'constructor', '__proto__', 'toString']) {
+  for (const gameMode of ['banana', 'VS-AI', 'Tutorial', 'vs-ai-insane', 'vs-ai-', 42, ['crews'], { tutorial: true }, 'vs-ai', 'vs-ai-veteran', 'turn-based', 'live', 'constructor', '__proto__', 'toString']) {
     const r = await create({ sameRoom: false, gameMode });
     assert.strictEqual(r.status, 400, `gameMode ${JSON.stringify(gameMode)}`);
   }
@@ -98,7 +110,7 @@ test('one person holds at most ten open lobbies; each answer says how many are o
   await db.query(`UPDATE games SET status = 'playing' WHERE code = $1`, [last.game.code]);
   assert.strictEqual((await create({ gameMode: 'crews' }, other)).status, 201);
   // someone else is not counted against
-  assert.strictEqual((await create({ gameMode: 'vs-ai' })).status, 201);
+  assert.strictEqual((await create({ gameMode: 'vs-ai-easy' })).status, 201);
 });
 
 test('one person makes at most sixty games a day, started ones too (a tutorial starts itself); each answer says how many', async () => {

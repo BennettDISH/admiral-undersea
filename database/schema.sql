@@ -90,6 +90,15 @@ END $$;
 -- number of emailless users coexist. Storing '' instead would collide on that index.
 ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
 
+-- Games made before the difficulty pick (2026-11) were stored as 'vs-ai' (played as Easy) and
+-- 'vs-ai-veteran' (Hard), and the old board rules' games as 'turn-based' / 'live' (played as
+-- crews). Renamed to what they are played as, so the server and the page know only today's
+-- names (server/game/modes.js); a no-op once done.
+UPDATE games SET game_mode = 'vs-ai-easy' WHERE game_mode = 'vs-ai';
+UPDATE games SET game_mode = 'vs-ai-hard' WHERE game_mode = 'vs-ai-veteran';
+UPDATE games SET game_mode = 'crews' WHERE game_mode IN ('turn-based', 'live');
+ALTER TABLE games ALTER COLUMN game_mode SET DEFAULT 'vs-ai-normal';
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);

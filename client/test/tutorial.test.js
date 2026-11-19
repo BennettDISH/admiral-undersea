@@ -7,7 +7,7 @@ import serverTutorial from '../../server/game/tutorial.js'
 import engine from '../../server/game/engine.js'
 import ai from '../../server/game/ai.js'
 import { LESSONS, CHAPTERS, lessonCard, spotlight, stationOf, chartFocus } from '../src/game/tutorial.js'
-import { STATIONS, AI_LEVELS, isVsAi, isTutorial, aiLevelOf, modeId, HEARING_AT_SPEED, crossing } from '../src/game/rules.js'
+import { STATIONS, AI_LEVELS, isVsAi, isTutorial, aiLevelOf, HEARING_AT_SPEED, crossing } from '../src/game/rules.js'
 import { react, newMemory } from '../src/game/reactions.js'
 import { isSoundName } from '../src/lib/soundNames.js'
 import { LINES } from '../src/game/voice.js'
@@ -117,15 +117,17 @@ test('the listening lesson\'s two bearings make one amber cross, within two cell
   }
 })
 
-test('the deck\'s modes: the tutorial and the three crews are played against one boat; old names keep working', () => {
+test('the deck\'s modes: the tutorial and the three crews are played against one boat', () => {
   assert.deepEqual(AI_LEVELS.map((l) => l.mode), ['vs-ai-easy', 'vs-ai-normal', 'vs-ai-hard'])
-  for (const m of ['tutorial', 'vs-ai-easy', 'vs-ai-normal', 'vs-ai-hard', 'vs-ai', 'vs-ai-veteran']) assert.equal(isVsAi(m), true, m)
-  for (const m of ['crews', 'live', 'vs-ai-insane', 'constructor', undefined]) assert.equal(isVsAi(m), false, String(m))
+  for (const m of ['tutorial', 'vs-ai-easy', 'vs-ai-normal', 'vs-ai-hard']) assert.equal(isVsAi(m), true, m)
+  // the old names are renamed in the database on boot, so the page knows only today's
+  for (const m of ['crews', 'live', 'vs-ai', 'vs-ai-veteran', 'vs-ai-insane', 'constructor', undefined, 42]) assert.equal(isVsAi(m), false, String(m))
   assert.equal(isTutorial('tutorial'), true)
-  assert.equal(aiLevelOf('vs-ai').name, 'Easy')
-  assert.equal(aiLevelOf('vs-ai-veteran').name, 'Hard')
+  assert.equal(aiLevelOf('vs-ai-easy').name, 'Easy')
+  assert.equal(aiLevelOf('vs-ai-hard').name, 'Hard')
+  assert.equal(aiLevelOf('vs-ai'), null)
   assert.equal(aiLevelOf('crews'), null)
-  assert.equal(modeId('constructor'), 'constructor', 'no names borrowed from Object')
+  assert.equal(aiLevelOf('constructor'), null, 'no names borrowed from Object')
   assert.ok(HEARING_AT_SPEED[3] < HEARING_AT_SPEED[1] / 2, 'Full is nearly deaf')
 })
 

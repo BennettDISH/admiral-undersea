@@ -12,7 +12,7 @@ const failSaves = new Set(); // codes whose match writes fail (the database is a
 const saveTries = {}; // code -> match writes tried
 
 function newGame(code, row = {}, seatList = { 1: { team: 'alpha', roles: 'helm,listener,weapons,chief' } }) {
-  games[code] = { id: Object.keys(games).length + 1, code, status: 'lobby', game_mode: 'vs-ai', same_room: false, created_by: 1, ...row };
+  games[code] = { id: Object.keys(games).length + 1, code, status: 'lobby', game_mode: 'vs-ai-easy', same_room: false, created_by: 1, ...row };
   seats[code] = seatList;
   return code;
 }

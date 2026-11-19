@@ -63,13 +63,10 @@ export const AI_LEVELS = [
     note: 'Somewhere out there, and they run every station well.',
   },
 ]
-const OLD_MODES = { 'vs-ai': 'vs-ai-easy', 'vs-ai-veteran': 'vs-ai-hard' }
-/** A stored game mode as it is played now (games made before the difficulty pick had other names). */
-export const modeId = (mode) => (typeof mode === 'string' && Object.hasOwn(OLD_MODES, mode) ? OLD_MODES[mode] : mode)
-export const isTutorial = (mode) => modeId(mode) === 'tutorial'
+export const isTutorial = (mode) => mode === 'tutorial'
 /** One boat to crew: the tutorial and every game against the computer. */
-export const isVsAi = (mode) => isTutorial(mode) || /^vs-ai-(easy|normal|hard)$/.test(modeId(mode))
-export const aiLevelOf = (mode) => AI_LEVELS.find((l) => l.mode === modeId(mode)) || null
+export const isVsAi = (mode) => isTutorial(mode) || (typeof mode === 'string' && /^vs-ai-(easy|normal|hard)$/.test(mode))
+export const aiLevelOf = (mode) => AI_LEVELS.find((l) => l.mode === mode) || null
 
 // What a contact is, as the listener's plot shows it.
 export const CONTACT_INFO = {
