@@ -45,6 +45,8 @@ button.primary, .primary {
 .deck-small { width: auto; }
 .sound-hint {
   position: fixed; left: 1rem; bottom: 1rem; z-index: 90; width: auto; padding: 0.55rem 1rem;
+  // clear of the bug-report button in the bottom-right corner (on a phone the line wraps)
+  max-width: calc(100vw - 6.5rem);
   background: linear-gradient(180deg, #2c4c3f, #16302a); border-color: var(--sonar); color: #eafff4;
   box-shadow: 0 0 16px rgba(55, 240, 160, 0.35); animation: lampblink 1.6s steps(1) 3;
 }
