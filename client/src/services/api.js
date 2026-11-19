@@ -21,11 +21,17 @@ api.interceptors.response.use(
   }
 )
 
-// Until 2026-10 the session was a token kept in localStorage. A page that still holds one hands
-// it to the server once, with its first /me, and the server swaps it for the session cookie;
-// then it is deleted here (with the cached user), so nobody is signed out by the move.
+// Until 2026-10 the session was a token kept in localStorage (with a cached user); the last of
+// them ran out by early November and the server no longer reads one. One still lying in a
+// browser is dropped.
 const OLD_TOKEN = 'token'
 const OLD_USER = 'user'
+const dropOld = () => {
+  try {
+    localStorage.removeItem(OLD_TOKEN)
+    localStorage.removeItem(OLD_USER)
+  } catch { /* storage blocked: nothing to drop */ }
+}
 
 export const auth = {
   login: (username, password) => api.post('/auth/login', { username, password }),
@@ -33,14 +39,9 @@ export const auth = {
   guest: () => api.post('/auth/guest'),
   logout: () => api.post('/auth/logout'),
   // { ssoEnabled, user } — user is null when nobody is signed in
-  me: async () => {
-    const old = localStorage.getItem(OLD_TOKEN)
-    try {
-      return await api.get('/auth/me', old ? { headers: { Authorization: `Bearer ${old}` } } : undefined)
-    } finally {
-      if (old) localStorage.removeItem(OLD_TOKEN)
-      localStorage.removeItem(OLD_USER)
-    }
+  me: () => {
+    dropOld()
+    return api.get('/auth/me')
   }
 }
 

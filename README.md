@@ -82,7 +82,7 @@ The server reads these env vars (set them in Railway):
 | Var | Required | Purpose |
 |-----|----------|---------|
 | `DATABASE_URL` | yes | Postgres connection (schema auto-applies on boot). |
-| `JWT_SECRET` (or `SESSION_SECRET`) | **yes in production** | Signs the session cookie (`SESSION_SECRET` wins when both are set; `JWT_SECRET` also reads the old tokens until their reader goes). The server **refuses to start** in production without one. |
+| `JWT_SECRET` (or `SESSION_SECRET`) | **yes in production** | Signs the session cookie (`SESSION_SECRET` wins when both are set). The server **refuses to start** in production without one. |
 | `NODE_ENV` | recommended | Set to `production` on Railway (enables the secret guard + Express prod mode). |
 | `ADMIN_CENTRAL_USER_IDS` | no | The site admin's Waypoint central id (`1`). Unset, nobody is admin. |
 | `PORT` | no | Provided by Railway; defaults to 5000. |
@@ -103,9 +103,8 @@ The server reads these env vars (set them in Railway):
 > (`users.token_version`). The REST API and the game's sockets read the same cookie; a socket's
 > handshake must come from the game's own pages (fleet-kit's `originAllowed`). Every write under
 > `/api` must come from the game's own pages too (`sameOriginWrites`). Until 2026-10 the session
-> was a 7-day token in localStorage: a page that still holds one hands it over once with its first
-> `/api/auth/me` and is moved onto the cookie with the end it had. That reader (`legacy` in
-> `server/config/auth.js`) can go a week after the deploy.
+> was a 7-day token in localStorage, swapped once for the cookie; the last of them ran out by early
+> November, so a bearer header signs nobody in now, and the page only drops one still stored.
 
 ## Getting started
 ```bash
@@ -143,7 +142,7 @@ same station.
 - `shared/gameConstants.json` — the charts, headings and speeds, power, torpedoes, pings, decoys, faults and crew calls (single-sourced client+server).
 - `client/src/pages/` — Home (the deck), Login, Register, CreateGame, JoinGame, Lobby (the muster), Game (the control room), Admin (`/admin`; `client/src/lib/adminGate.js` decides what it shows).
 - `client/src/game/` — `rules.js` (the client's copy of the rules), `useMatch.js` (a match from the socket), `ChartCanvas.jsx` and `draw.js` (the chart table), `Scope.jsx` (the hydrophone scope), `Stations.jsx` (the four consoles), `CrewPanel.jsx` (the talking faces), `reactions.js` (what each event sounds and looks like), `voice.js` (the crew's lines), `sprites.js` (sprite-factory art).
-- `client/src/lib/` — `audio.js` and `soundNames.js` (the site's sound), `useScene.js`, the shared games top bar (fleet-kit's `<fleet-topbar>`, with the menu taken over so Sign out holds the sign-in page and drops the socket), Waypoint sign-in decisions (`signIn.js`), joining a game's room. `client/src/services/api.js` asks `/api/auth/me` once on load (handing over an old token once).
+- `client/src/lib/` — `audio.js` and `soundNames.js` (the site's sound), `useScene.js`, the shared games top bar (fleet-kit's `<fleet-topbar>`, with the menu taken over so Sign out holds the sign-in page and drops the socket), Waypoint sign-in decisions (`signIn.js`), joining a game's room. `client/src/services/api.js` asks `/api/auth/me` once on load.
 - `server/game/` — `engine.js` (the rules), `ai.js` (the auto-crew and the AI's Easy / Normal / Hard crews), `tutorial.js` (the guided first dive: its lessons, goals and training boat; the words are `client/src/game/tutorial.js`), `map.js` (charts, steps, bearings, routes), `modes.js` (tutorial, vs-ai-easy, vs-ai-normal, vs-ai-hard, crews; older games' vs-ai and vs-ai-veteran play as Easy and Hard), `playtest.js` (scripted players for balance), `constants.js` (+ `*.test.js`).
 - `server/sockets/game.js` — the clock that ticks every running match ten times a second (paused when nobody is aboard), the socket.io adapter over the engine; the handshake reads the session cookie and checks the Origin; `rateLimit.js` caps events per socket. It plays from memory and writes each match to Postgres every few seconds. Each play is taken only from a player holding its station in the game they joined, one player may hold several, a refusal comes back as `action-rejected` with a `message`, and a station whose people have all left is handed to the auto-crew until one comes back.
 - `server/config/auth.js` — fleet-kit's `createWaypoint` (app `au`, callback `/auth/callback`, guests allowed): the users row by central id (adopting an unclaimed pre-Waypoint row by email), who is a guest (by Waypoint's generated name), the session's row read, sign-out, renewal and the old-token reader.

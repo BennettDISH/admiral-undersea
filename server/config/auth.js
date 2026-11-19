@@ -2,9 +2,8 @@
 // build): the authorize URL built on the server, the code exchanged server to server at
 // /auth/callback (the address Waypoint has registered for the game), one-click guests, and an
 // httpOnly __Host-au_session cookie that the REST API and the game's sockets both read. What is
-// the game's own is here: the users row, who counts as a guest, and moving players off the old
-// token.
-const { createWaypoint, verifyJwt } = require('fleet-kit/server');
+// the game's own is here: the users row and who counts as a guest.
+const { createWaypoint } = require('fleet-kit/server');
 const db = require('./database');
 
 // A guest is a user Waypoint minted for "Try it as a guest": made by a Waypoint sign-in
@@ -124,17 +123,9 @@ const wp = createWaypoint({
     onRenew: async (user) => {
       await db.query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [user.id]);
     },
-    // Until 2026-10 the session was a 7-day token the page kept in localStorage and sent as a
-    // bearer header (and in the socket handshake). A page that still holds one sends it once to
-    // /api/auth/me, which swaps it for the cookie with the end it had, so nobody is signed out
-    // by the move. This reader can go a week after the deploy.
-    legacy: [{
-      bearer: true,
-      read: (token) => {
-        const c = verifyJwt(token, process.env.JWT_SECRET);
-        return c && Number.isInteger(c.id) ? { sub: String(c.id), tv: 0, exp: c.exp } : null;
-      },
-    }],
+    // (Until 2026-10 the session was a 7-day token in localStorage, sent as a bearer header; it
+    // was swapped once for the cookie. The last of them ran out by early November, so a bearer
+    // header signs nobody in now.)
   },
 });
 

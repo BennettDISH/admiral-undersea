@@ -157,19 +157,15 @@ test('signing out ends the session on every device', async () => {
   assert.ok(await me(withSession(back)));
 });
 
-test('a page that still holds the old token is moved onto the cookie once, with the end it had', async () => {
+test('a token in a bearer header signs nobody in: the session is the cookie alone', async () => {
+  // The old localStorage token ({ id }, signed with JWT_SECRET) was swapped for the cookie until
+  // the last of them ran out in early November 2026; even a fresh one is refused now.
   const { rows: [u] } = await db.query(`INSERT INTO users (email, username, password_hash) VALUES ('old@token.test', 'oldtoken', 'x') RETURNING id`);
   const now = Math.floor(Date.now() / 1000);
-  const old = jwtSign({ id: u.id, username: 'oldtoken', role: 'player', iat: now - 86400, exp: now + 2 * 86400 }, process.env.JWT_SECRET);
+  const old = jwtSign({ id: u.id, username: 'oldtoken', role: 'player', iat: now - 60, exp: now + 7 * 86400 }, process.env.JWT_SECRET);
   const res = await fetch(`${base}/me`, { headers: { Authorization: `Bearer ${old}` } });
-  const body = await res.json();
-  assert.strictEqual(body.user.id, u.id);
-  const session = sessionOf(res);
-  assert.ok(session, 'swapped for the session cookie');
-  const { exp } = JSON.parse(Buffer.from(session.split('.')[1], 'base64url').toString());
-  assert.ok(exp <= now + 2 * 86400 + 5 && exp > now + 86400, 'the old end is kept, not extended');
-  assert.strictEqual((await me(withSession(session))).id, u.id);
-  // a token signed with anything else is nobody
-  const forged = jwtSign({ id: u.id, iat: now, exp: now + 3600 }, 'not-the-secret');
-  assert.strictEqual(await me({ Authorization: `Bearer ${forged}` }), null);
+  assert.strictEqual((await res.json()).user, null);
+  assert.strictEqual(sessionOf(res), undefined, 'and no cookie was set for it');
+  // nor does one in place of the session cookie
+  assert.strictEqual(await me({ Cookie: `${wp.session.name}=${old}` }), null);
 });
