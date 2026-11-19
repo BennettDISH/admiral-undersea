@@ -57,6 +57,10 @@ const signedIn = (res, user, status = 200) => {
   return res.status(status).json({ success: true, user: publicUser({ ...user, is_admin: wp.isAdmin(user) }) });
 };
 
+// What a failed sign-in or sign-up logs: the error's code and message only. A database error's
+// detail (and the whole error object) names the email or username it was about.
+const errorLine = (err) => [err?.code, err?.message].filter(Boolean).join(' ') || 'unknown error';
+
 // Register new user
 router.post('/register', signupLimit, async (req, res) => {
   const { email, username, password } = req.body ?? {};
@@ -107,7 +111,10 @@ router.post('/register', signupLimit, async (req, res) => {
     );
     return signedIn(res, await account(result.rows[0].id), 201);
   } catch (error) {
-    console.error('Registration error:', error);
+    // Two sign-ups racing for one email or username: the one that loses hears what the check
+    // above would have said.
+    if (error.code === '23505') return res.status(400).json({ error: 'Email or username already exists' });
+    console.error('Registration error:', errorLine(error));
     res.status(500).json({ error: 'Registration failed' });
   }
 });
@@ -162,7 +169,7 @@ router.post('/login', async (req, res) => {
     wrongPasswordsByName.clear(name);
     return signedIn(res, await account(result.rows[0].id));
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Login error:', errorLine(error));
     res.status(500).json({ error: 'Login failed' });
   }
 });

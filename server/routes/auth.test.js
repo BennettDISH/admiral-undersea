@@ -128,6 +128,27 @@ test('a sign-up the auth-service accepts is linked, sets the session, and still 
   assert.strictEqual(login.body.user.id, reg.body.user.id);
 });
 
+test('two sign-ups racing for one email: one gets it, the other is told so, and no log names the email', async () => {
+  const logged = [];
+  const was = console.error;
+  console.error = (...a) => { logged.push(a.map((x) => (x instanceof Error ? `${x.message} ${JSON.stringify(x)}` : String(x))).join(' ')); };
+  let both;
+  try {
+    // Both pass the "already exists" check before either is written, so the database's unique
+    // email refuses the second; its error's detail names the address.
+    both = await Promise.all([
+      post('/register', { email: 'race@example.com', username: 'racer-one', password: 'race-pass' }),
+      post('/register', { email: 'race@example.com', username: 'racer-two', password: 'race-pass' }),
+    ]);
+  } finally {
+    console.error = was;
+  }
+  assert.deepStrictEqual(both.map((r) => r.status).sort(), [201, 400]);
+  assert.match(both.find((r) => r.status === 400).body.error, /already exists/);
+  assert.strictEqual((await usersWithEmail('race@example.com')).length, 1);
+  for (const line of logged) assert.doesNotMatch(line, /race@example\.com|racer-/, line);
+});
+
 test('a local account with no central account still signs in with its password', async () => {
   const hash = await bcrypt.hash('local-pass', 4);
   await db.query(
