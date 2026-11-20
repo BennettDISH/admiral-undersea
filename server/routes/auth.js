@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { rateLimit, waypointUser } = require('fleet-kit/server');
+const { clientKey, rateLimit, waypointUser } = require('fleet-kit/server');
 const db = require('../config/database');
 const { wp, account, findOrCreateLocalUser, publicUser } = require('../config/auth');
 
@@ -11,7 +11,8 @@ const router = express.Router();
 
 // Every sign-in route that reaches Waypoint, which only sees this server's one address and caps
 // per address: without a limit here, one visitor could use up everyone's sign-ins or mint
-// accounts without end. Per browser address (req.ip, one trusted proxy hop: index.js), in memory.
+// accounts without end. Per visitor (the kit's clientKey: X-Real-IP, which Railway's edge
+// writes, else req.ip with one trusted proxy hop: index.js), in memory.
 // (The kit limits its own routes: the Waypoint callback and the guest button.)
 const signupLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 'Too many new accounts from here. Try again later.' });
 
@@ -45,8 +46,9 @@ function attemptLimit(allowed, windowMs) {
 // The old local sign-in (the ?local form) checks passwords here, and with SSO on at Waypoint,
 // which only ever sees this server's address. 10 wrong passwords for one name (username or
 // email) in 15 minutes make that name wait, and 30 from one address make the address wait.
-// The address is req.ip, which with `trust proxy` 1 (index.js) is the one Railway's edge saw,
-// not one the client wrote into X-Forwarded-For.
+// The address is the kit's clientKey: X-Real-IP, which Railway's edge writes over anything the
+// client sent. req.ip (`trust proxy` 1, index.js) is only the fallback: on the game's own Railway
+// address its last X-Forwarded-For entry is a Railway hop that many visitors share.
 const WRONG_PASSWORD_WINDOW_MS = 15 * 60 * 1000;
 const wrongPasswordsByName = attemptLimit(10, WRONG_PASSWORD_WINDOW_MS);
 const wrongPasswordsByAddress = attemptLimit(30, WRONG_PASSWORD_WINDOW_MS);
@@ -128,14 +130,15 @@ router.post('/login', async (req, res) => {
   }
 
   const name = username.trim().toLowerCase();
-  const wait = Math.max(wrongPasswordsByName.waitSeconds(name), wrongPasswordsByAddress.waitSeconds(req.ip));
+  const visitor = clientKey(req);
+  const wait = Math.max(wrongPasswordsByName.waitSeconds(name), wrongPasswordsByAddress.waitSeconds(visitor));
   if (wait) {
     res.set('Retry-After', String(wait));
     return res.status(429).json({ error: 'Too many wrong passwords. Try again in a few minutes.' });
   }
   const wrongPassword = () => {
     wrongPasswordsByName.note(name);
-    wrongPasswordsByAddress.note(req.ip);
+    wrongPasswordsByAddress.note(visitor);
     return res.status(401).json({ error: 'Invalid credentials' });
   };
 

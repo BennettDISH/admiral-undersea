@@ -1,5 +1,6 @@
 // The old local sign-in can't be used to guess passwords at full speed, and the address it
-// counts is the one Railway's edge adds last to X-Forwarded-For, not one the client wrote.
+// counts is the visitor Railway's edge names (X-Real-IP, else the last X-Forwarded-For entry),
+// not one the client wrote.
 // In-process PGlite; SSO off, so every password is checked locally.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -99,4 +100,29 @@ test('30 wrong passwords from one address make it wait, and a forged X-Forwarded
 
   res = await login('bystander', 'right-password', '198.51.100.51');
   assert.strictEqual(res.status, 200, 'another address still signs in');
+});
+
+// On the game's own Railway address the last X-Forwarded-For entry is a Railway hop many visitors
+// share; the edge writes the visitor into X-Real-IP. Through the front door both name the visitor.
+const loginVia = async (username, password, visitor, hop) => {
+  const res = await fetch(`${base}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': hop, 'X-Real-IP': visitor },
+    body: JSON.stringify({ username, password }),
+  });
+  return { status: res.status, body: await res.json() };
+};
+
+test('the wrong-password count goes by the visitor in X-Real-IP, not the Railway hop in front', async () => {
+  const hop = '100.64.0.7';
+  for (let i = 0; i < 30; i++) {
+    const res = await loginVia(`stranger-${i}`, 'whatever', '198.51.100.70', hop);
+    assert.strictEqual(res.status, 401, `guess ${i + 1}`);
+  }
+  let res = await loginVia('bystander', 'right-password', '198.51.100.70', hop);
+  assert.strictEqual(res.status, 429, 'the guesser waits');
+  res = await loginVia('bystander', 'right-password', '198.51.100.71', hop);
+  assert.strictEqual(res.status, 200, 'another visitor behind the same hop still signs in');
+  res = await loginVia('bystander', 'right-password', '198.51.100.70', '198.51.100.70');
+  assert.strictEqual(res.status, 429, 'the guesser still waits by the front door');
 });
