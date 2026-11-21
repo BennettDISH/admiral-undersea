@@ -38,6 +38,8 @@ export const auth = {
   register: (email, username, password) => api.post('/auth/register', { email, username, password }),
   guest: () => api.post('/auth/guest'),
   logout: () => api.post('/auth/logout'),
+  // The site admin sees the game as this account (fleet-kit's View as): { viewing, next }
+  viewAs: (id) => api.post('/auth/view-as', { id }),
   // { ssoEnabled, user } — user is null when nobody is signed in
   me: () => {
     dropOld()

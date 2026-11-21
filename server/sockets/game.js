@@ -341,6 +341,9 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
       const found = await wp.session.resolve(socket.request);
       if (found.failed) return next(new Error('Could not check your session'));
       if (!found.user) return next(new Error('Authentication required'));
+      // The site admin viewing as a player (fleet-kit's View as) is read-only, and every play
+      // goes over this socket, so none opens: the pages show what their GETs can.
+      if (found.viewing) return next(new Error('Viewing as a player is read-only: no live connection'));
       socket.userId = found.user.id;
       socket.username = found.user.username;
       next();

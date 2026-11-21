@@ -79,6 +79,9 @@ test('security', async (t) => {
     build: {},
     // no /api answer opens itself to another site's page (CORS is for FRONTEND_URL only)
     cors: {},
+    // The admin viewing as Ann: only the admin starts it, every write is refused while it's on,
+    // and the view cookie does nothing for anyone else (viewAs.test.js has the game's side).
+    viewAs: { target: () => ann.row.id },
   });
   for (const check of checks) await t.test(check.name, check.run);
 });

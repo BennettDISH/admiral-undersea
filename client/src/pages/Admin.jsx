@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { admin } from '../services/api'
+import { admin, auth } from '../services/api'
 import { adminGate, FORBIDDEN_TEXT } from '../lib/adminGate'
 
 // Look-only view of every account and game, for site admins, with the environment switches
@@ -20,6 +20,30 @@ function Pager({ data, onPage }) {
       <span>Page {data.page} of {data.totalPages} · {data.total} total</span>
       <button disabled={data.page >= data.totalPages} onClick={() => onPage(data.page + 1)}>Next</button>
     </div>
+  )
+}
+
+// View as (fleet-kit's): the game the way this player sees it, read-only, for 30 minutes or until
+// Exit in the red bar across the top.
+function ViewAsButton({ user }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const go = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const res = await auth.viewAs(user.id)
+      window.location.assign(res.data.next || '/')
+    } catch (err) {
+      setBusy(false)
+      setError(err.response?.data?.error || 'Could not view as them.')
+    }
+  }
+  return (
+    <>
+      <button className="admin-link-btn" onClick={go} disabled={busy} aria-label={`View as ${user.username}`}>View as</button>
+      {error && <span className="admin-roles"> {error}</span>}
+    </>
   )
 }
 
@@ -46,6 +70,7 @@ function UsersTable({ users, onGames }) {
               <td>{u.games_created}</td>
               <td>
                 <button className="admin-link-btn" onClick={() => onGames(u)}>Games</button>
+                {u.view_as && <> · <ViewAsButton user={u} /></>}
               </td>
             </tr>
           ))}
@@ -197,7 +222,7 @@ function AdminPanel() {
         <h1>Admin</h1>
         <button className="logout-btn" onClick={() => navigate('/')}>Back</button>
       </header>
-      <p className="admin-note">Look-only. Nothing here changes an account or a game.</p>
+      <p className="admin-note">Look-only. Nothing here changes an account or a game. View as shows the game the way that player sees it, read-only, for 30 minutes or until you press Exit in the red bar.</p>
 
       <div className="admin-tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'users'} className={tab === 'users' ? 'selected' : ''} onClick={() => switchTab('users')}>Users</button>

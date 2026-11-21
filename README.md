@@ -12,7 +12,7 @@ React 18 + Vite 8 (client) · Express + socket.io (server, real-time multiplayer
 fleet-kit (Waypoint sign-in, the cookie session, headers, limits, log, errors, health, the top bar)
 
 Monorepo with separate `client/` and `server/` packages. fleet-kit is vendored as
-`server/vendor/fleet-kit-1.0.16.tgz` and both packages install that one file (the server
+`server/vendor/fleet-kit-1.0.18.tgz` and both packages install that one file (the server
 `require`s its CommonJS build; the client imports `fleet-kit/client/topbar`). Once it is
 published, both take `github:BennettDISH/fleet-kit#v1.0.0` and the vendor folder goes. A kit
 change is a new kit version, never a re-packed tarball; never edit the kit here.
@@ -128,6 +128,8 @@ Production: `npm run build` (builds client), then `npm start` (serves `client/di
 
 ## Admin
 Admin: `/admin`, Waypoint id 1 only (`ADMIN_CENTRAL_USER_IDS=1`). The server decides the page before it goes out (fleet-kit's `adminPage`): signed out goes to sign-in and comes back; anyone else gets a plain "This page is for the site admin." page; every `/api/admin` route answers 403 to a non-admin. The central id decides it on every request; a guest is never an admin.
+
+View as (fleet-kit's, since 2026-11-20): the Users tab has a View as button by each player (not the admin's own account, another admin or a closed one). It shows the game the way that player sees it, read-only, for 30 minutes or until Exit in the red bar across the top (`client/index.html` loads `/api/auth/view-as.js`). The kit refuses every write while it's on, and the game's socket stays closed (`server/sockets/game.js`), since all play goes over it: the deck and a lobby's roster show, a match does not. `server/viewAs.test.js` holds the game's side, the kit's own checks run in `server/security.test.js`.
 
 ## Guests
 Guests: yes, because a friend should be able to join a lobby from a link with no account. `POST /api/auth/guest` (fleet-kit's, limited per address) mints a Waypoint guest and signs it in (no redirect, no form); the daily guest sweep (`server/services/guestSweep.js`) removes guests idle past 30 days once Waypoint says they may go (fleet-kit's `checkGuests`), and a guest that claimed its account stays.

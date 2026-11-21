@@ -63,7 +63,7 @@ router.get('/users', async (req, res) => {
   try {
     const count = await db.query(`SELECT COUNT(*)::int AS n FROM users u ${where}`, params);
     const rows = await db.query(
-      `SELECT u.id, u.username, u.email, u.role, u.is_active, u.created_at,
+      `SELECT u.id, u.username, u.email, u.role, u.is_active, u.created_at, u.central_user_id,
               (u.central_user_id IS NOT NULL) AS waypoint,
               (SELECT COUNT(*)::int FROM game_players gp WHERE gp.user_id = u.id) AS games_played,
               (SELECT COUNT(*)::int FROM game_players gp JOIN games g ON g.id = gp.game_id
@@ -74,7 +74,14 @@ router.get('/users', async (req, res) => {
        LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`,
       params
     );
-    res.json({ users: rows.rows, ...paged(count.rows[0].n, page) });
+    // view_as: whether /admin offers View as for the account (POST /api/auth/view-as with its id):
+    // not the admin's own, not another admin's, not a closed one. The central id only decides it
+    // and never leaves.
+    const users = rows.rows.map(({ central_user_id: central, ...u }) => ({
+      ...u,
+      view_as: u.id !== req.user.id && u.is_active && !wp.isAdmin({ central_user_id: central }),
+    }));
+    res.json({ users, ...paged(count.rows[0].n, page) });
   } catch (error) {
     console.error('Admin users error:', error);
     res.status(500).json({ error: 'Failed to list users' });

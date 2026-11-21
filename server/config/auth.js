@@ -127,6 +127,14 @@ const wp = createWaypoint({
     // was swapped once for the cookie. The last of them ran out by early November, so a bearer
     // header signs nobody in now.)
   },
+  // View as (fleet-kit 1.0.18): the site admin picks a player on /admin and sees the game the way
+  // they do, read-only, for 30 minutes or until Exit in the red bar (index.html loads
+  // /api/auth/view-as.js). The kit refuses every write while it's on, and the game's socket stays
+  // closed (sockets/game.js), since play goes over it.
+  viewAs: {
+    find: (id) => (/^\d{1,9}$/.test(String(id)) ? account(Number(id)) : null),
+    name: (u) => u.username,
+  },
 });
 
 module.exports = { wp, account, findOrCreateLocalUser, publicUser, GUEST_SQL };

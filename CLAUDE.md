@@ -20,7 +20,7 @@ ours; never borrow a board game's name, roles, boards or rules text.
 - **Frontend**: React 18 + Vite + SASS (`/client/`)
 - **Backend**: Express.js + Socket.IO (`/server/`)
 - **Database**: PostgreSQL
-- **Auth**: fleet-kit's Waypoint sign-in and cookie session (`server/config/auth.js`), plus the game's own password forms (bcryptjs, `server/routes/auth.js`)
+- **Auth**: fleet-kit's Waypoint sign-in and cookie session (`server/config/auth.js`), plus the game's own password forms (bcryptjs, `server/routes/auth.js`). The site admin's View as (read-only, from /admin's Users tab) opens no game socket while it's on; keep that if the handshake changes.
 - **Deployment**: Railway (auto-deploys on git push)
 
 ## Commands
