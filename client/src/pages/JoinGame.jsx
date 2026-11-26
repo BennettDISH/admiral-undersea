@@ -13,7 +13,7 @@ function JoinGame() {
   const handleJoin = async (e) => {
     e.preventDefault()
     if (!code.trim()) {
-      setError('Enter the six-letter code your crew shared')
+      setError('Enter the six-character code your crew shared')
       return
     }
     setLoading(true)
