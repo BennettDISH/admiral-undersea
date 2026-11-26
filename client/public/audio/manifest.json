@@ -334,10 +334,10 @@
       "gain": 0.6
     },
     "music.menu": {
-      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-harbor/admiral-harbor-calm-8e455840.mp3",
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-harbor/admiral-harbor-calm-005354bc.mp3",
       "gain": 0.55,
       "loopStart": 0.3,
-      "loopEnd": 50.825333
+      "loopEnd": 74.148
     },
     "amb.hull": {
       "src": "https://media.bennettdishmanmedia.com/sounds/admiral-amb-hull/admiral-amb-hull-1-2c91fdfc.mp3",
