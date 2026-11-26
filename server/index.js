@@ -24,6 +24,7 @@ const initDb = require('./config/initDb');
 const { corsOrigin } = require('./config/origin');
 const { securityHeaders } = require('./middleware/securityHeaders');
 const { scheduleGuestSweep } = require('./services/guestSweep');
+const { exitCleanlyOn } = require('./cleanStop');
 
 // FRONTEND_URL, or nobody but this site in production (see config/origin.js).
 const allowedOrigin = corsOrigin();
@@ -70,7 +71,7 @@ app.use('/api/admin', adminRoutes);
 app.get('/auth/callback', wp.callback);
 
 // Setup game sockets
-const { flushMatches, sweepMatches } = setupGameSockets(io);
+const { flushMatches, sweepMatches, stop: stopClock } = setupGameSockets(io);
 
 // Health check (Railway's healthcheck path): 200 only while Postgres answers a SELECT 1 in 3 s
 app.get('/api/health', health({ db, timeoutMs: 3000 }));
@@ -108,17 +109,19 @@ async function start() {
   scheduleMatchSweep(); // old matches go a minute after boot, then hourly
 }
 
-// Matches are written to the database a moment after they change (sockets/game.js), so a
-// shutdown (every deploy) writes what is waiting before it exits, but never waits long.
-let stopping = false;
-function shutdown() {
-  if (stopping) return;
-  stopping = true;
-  const giveUp = new Promise((resolve) => setTimeout(resolve, 4000));
-  Promise.race([flushMatches(), giveUp]).finally(() => process.exit(0));
-}
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+// Railway stops the old server with SIGTERM on every deploy (cleanStop.js: exit 0 within 5 s,
+// however the close went, and a second signal is only noted). Matches are written to the database
+// a moment after they change (sockets/game.js), so the stop halts the clock and writes what is
+// waiting first; then the sockets go (the crews reconnect to the new server, which reads those
+// matches back), then the listener and the database pool.
+exitCleanlyOn(async () => {
+  stopClock();
+  await flushMatches();
+  const closed = new Promise((resolve) => io.close(() => resolve()));
+  httpServer.closeIdleConnections();
+  await closed;
+  await db.end?.(); // the pg pool; the PGlite stand-in has none
+});
 
 // A finished game's match is dropped a day after it ends, any other after a week unchanged.
 function scheduleMatchSweep() {

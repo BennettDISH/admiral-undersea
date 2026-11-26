@@ -4,7 +4,7 @@
   "description": "Admiral Undersea API Server",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "exec node index.js",
     "dev": "nodemon index.js",
     "dev:local": "node dev-local.js",
     "test": "node --test --test-force-exit"

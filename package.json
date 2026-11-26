@@ -4,7 +4,7 @@
   "description": "A real-time submarine hunt for one crew against the AI or two crews of friends",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js",
+    "start": "exec node server/index.js",
     "dev": "cd server && npm run dev",
     "client": "cd client && npm run dev",
     "build": "cd client && npm run build",
