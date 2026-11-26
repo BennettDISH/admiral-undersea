@@ -19,6 +19,10 @@ function Home() {
   // the end of a tutorial sends its player here with the difficulty pick open
   const [picking, setPicking] = useState(Boolean(location.state?.pickLevel))
   const unlocked = useSoundUnlocked()
+  // The cards show once Come aboard is pressed, or at once when the sound was already open. Not on the
+  // sound opening by itself: a touch opens it on pointerdown, and the cards would then sit under the
+  // finger when the tap's click lands (on a phone, Come aboard went straight into the tutorial).
+  const [aboardDone, setAboardDone] = useState(unlocked)
   useScene('menu')
   useEffect(() => { loadArt() }, [])
 
@@ -30,6 +34,7 @@ function Home() {
     const audio = getAudio()
     audio.unlock()
     audio.play('ui.lever')
+    setAboardDone(true)
   }
 
   const start = async (gameMode) => {
@@ -62,7 +67,7 @@ function Home() {
         <p>Two boats. One dark sea. Every sound gives you away.</p>
       </header>
 
-      {!unlocked ? (
+      {!aboardDone ? (
         <div className="aboard">
           <button className="aboard-btn" onClick={aboard}>
             <span className="aboard-ring" />
