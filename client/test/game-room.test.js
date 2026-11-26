@@ -2,7 +2,7 @@
 // reconnect, since the server forgets a socket's game and team when the connection drops.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { joinGameOnConnect, joinGame, stallNotice, stallOver, STALL_NOTE, connectionLost, LOST_AFTER_MS } from '../src/lib/gameRoom.js'
+import { joinGameOnConnect, joinGame, stallNotice, stallOver, STALL_NOTE, connectionLost, LOST_AFTER_MS, endedNote } from '../src/lib/gameRoom.js'
 
 function fakeSocket(connected) {
   const listeners = {}
@@ -86,4 +86,15 @@ test('no lost-connection notice while the clock is stopped by design', () => {
   assert.equal(connectionLost({ ...late, view: { t: 600, over: { winner: null } } }), false, 'the game is over')
   assert.equal(connectionLost({ ...late, view: { t: 80 }, over: { winner: 'alpha' } }), false, 'game-over came before the last view')
   assert.equal(connectionLost({ ...late, view: { t: 12, tutorial: { paused: false } } }), true)
+})
+
+// An ended game's code or lobby link says it is over instead of showing a lobby where nothing works.
+test('a finished game is over, said from its result; one still mustering or playing is not', () => {
+  const boats = { alpha: 'Marlin', bravo: 'Barracuda' }
+  assert.equal(endedNote({ status: 'finished', game_mode: 'crews', winner_team: 'bravo' }, boats), 'This game is over: the Barracuda won.')
+  assert.equal(endedNote({ status: 'finished', game_mode: 'vs-ai-hard', winner_team: null }, boats), 'This game is over.')
+  assert.equal(endedNote({ status: 'finished', game_mode: 'tutorial', winner_team: null }, boats), 'This training dive is over.')
+  assert.equal(endedNote({ status: 'lobby', game_mode: 'crews' }, boats), null)
+  assert.equal(endedNote({ status: 'playing', game_mode: 'crews' }, boats), null)
+  assert.equal(endedNote(null, boats), null)
 })

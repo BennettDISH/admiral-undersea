@@ -41,3 +41,13 @@ export function connectionLost({ connected, view, over, lastViewAt, now }) {
   if (!connected) return true
   return now - lastViewAt > LOST_AFTER_MS
 }
+
+// A game that has ended, opened by its code or lobby link (a link shared yesterday, a tutorial
+// left): its lobby used to look ready, and Dive or Join this boat did nothing. What to say instead.
+// boats: the team names (TEAM_INFO's boat). Null while the game can still be mustered or played.
+export function endedNote(game, boats = {}) {
+  if (!game || game.status !== 'finished') return null
+  if (game.game_mode === 'tutorial') return 'This training dive is over.'
+  const boat = game.winner_team && boats[game.winner_team]
+  return boat ? `This game is over: the ${boat} won.` : 'This game is over.'
+}

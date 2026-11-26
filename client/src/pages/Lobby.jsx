@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../services/api'
 import socket, { connectSocket } from '../services/socket'
-import { joinGameOnConnect } from '../lib/gameRoom'
+import { joinGameOnConnect, endedNote } from '../lib/gameRoom'
 import { useScene } from '../lib/useScene'
 import { getAudio } from '../lib/audio'
 import { Portrait } from '../game/CrewPanel'
@@ -126,6 +126,8 @@ function Lobby({ user }) {
 
   if (error && !game) return <div className="deck-page error-page"><p>{error}</p><button onClick={() => navigate('/')}>Back to the deck</button></div>
   if (!game) return <div className="game-page waiting"><div className="sonar-loader" aria-hidden="true" /><p>Mustering…</p></div>
+  const ended = endedNote(game, { alpha: TEAM_INFO.alpha.boat, bravo: TEAM_INFO.bravo.boat })
+  if (ended) return <div className="deck-page error-page"><p>{ended} Start a new one from the deck.</p><button onClick={() => navigate('/')}>Back to the deck</button></div>
 
   const isCreator = game.created_by === user.id
   const teams = vsAi ? ['alpha'] : ['alpha', 'bravo']
