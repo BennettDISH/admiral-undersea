@@ -418,3 +418,9 @@
 @media (prefers-reduced-motion: reduce) {
   .alarm::after, .alarm-lights span::after, .flood-water, .control-room.blackout, .dive-overlay .dive-gauge::after { animation: none !important; }
 }
+// The bug tracker's round button is fixed in the bottom-right corner. On a phone the control room
+// scrolls under it, so it sat over the Helm's Stbd (and whatever else passed that corner). While a
+// match is on, on a touch screen, it's put away; it's back on the ending card and on every other page.
+@media (hover: none) and (pointer: coarse) {
+  body:has(.game-page.control-room):not(:has(.ending)) #bug-tracker-widget-host { display: none !important; }
+}
