@@ -25,13 +25,19 @@ function Lobby({ user }) {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const autoSeated = useRef(false)
+  // Whoever made the game left the lobby (their Leave, or their connection dropped): only they can
+  // give the order to dive, so the others are told instead of waiting on it.
+  const [makerGone, setMakerGone] = useState(false)
+  const makerRef = useRef(null)
+  makerRef.current = game?.created_by ?? null
+  const toGame = useRef(false) // headed for the game itself: not a leave
 
   const load = useCallback(async () => {
     try {
       const res = await api.get(`/games/${code}`)
       setGame(res.data.game)
       setPlayers(res.data.players)
-      if (res.data.game.status === 'playing') navigate(`/game/${code}`)
+      if (res.data.game.status === 'playing') { toGame.current = true; navigate(`/game/${code}`) }
       return res.data
     } catch {
       setError('No game with that code')
@@ -44,18 +50,22 @@ function Lobby({ user }) {
     connectSocket(user.id)
     const stopJoining = joinGameOnConnect(socket, code)
     const reload = () => load()
-    const started = () => { getAudio().play('klaxon'); navigate(`/game/${code}`) }
+    const started = () => { toGame.current = true; getAudio().play('klaxon'); navigate(`/game/${code}`) }
     const refused = (r) => { if (r?.message) setError(r.message) }
-    socket.on('player-joined', reload)
-    socket.on('player-left', reload)
+    const joinedNow = (p) => { if (p?.userId === makerRef.current) setMakerGone(false); reload() }
+    const leftNow = (p) => { if (p?.userId === makerRef.current && p.userId !== user.id) setMakerGone(true); reload() }
+    socket.on('player-joined', joinedNow)
+    socket.on('player-left', leftNow)
     socket.on('team-updated', reload)
     socket.on('roles-updated', reload)
     socket.on('game-started', started)
     socket.on('action-rejected', refused)
     return () => {
       stopJoining()
-      socket.off('player-joined', reload)
-      socket.off('player-left', reload)
+      // Leaving the lobby for anywhere but the game: the others hear so (sockets/game.js)
+      if (!toGame.current) socket.emit('leave-game', { gameCode: code })
+      socket.off('player-joined', joinedNow)
+      socket.off('player-left', leftNow)
       socket.off('team-updated', reload)
       socket.off('roles-updated', reload)
       socket.off('game-started', started)
@@ -189,7 +199,9 @@ function Lobby({ user }) {
             {myTeam ? 'Dive!' : 'Pick a boat first'}
           </button>
         ) : (
-          <p className="hint">Waiting for whoever made the game to give the order to dive…</p>
+          makerGone
+            ? <p className="hint maker-gone" role="status">Whoever made this game has left the lobby, and only they can give the order to dive. Wait for them, or make a new game from the deck.</p>
+            : <p className="hint">Waiting for whoever made the game to give the order to dive…</p>
         )}
         <button className="deck-small" onClick={() => navigate('/')}>Leave</button>
       </div>

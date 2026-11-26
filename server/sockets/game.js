@@ -484,6 +484,21 @@ function setupGameSockets(io, { clock: runClock = true } = {}) {
       startTicking(gameCode);
     });
 
+    // The player left the game's page for the deck (the lobby's Leave). The socket stays open for
+    // the next game, so without this it stayed in the room, counted aboard, and nobody heard
+    // they had gone: a lobby whose maker left waited for a dive order that never came.
+    on('leave-game', async ({ gameCode }) => {
+      if (!joined(gameCode)) return;
+      const room = roomName(gameCode);
+      if (socket.team) socket.leave(`${room}:${socket.team}`);
+      socket.leave(room);
+      leaveGame(socket);
+      socket.gameCode = null;
+      socket.team = null;
+      socket.roles = [];
+      socket.to(room).emit('player-left', { userId: socket.userId, username: socket.username });
+    });
+
     // Which of this player's stations is on their screen (the auto-crew covers their others).
     on('focus', async ({ gameCode, station }) => {
       if (!joined(gameCode) || !socket.team) return;

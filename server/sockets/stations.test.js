@@ -389,3 +389,24 @@ test('a match with nobody aboard stops ticking after a while, and starts again w
   server._tickAll();
   assert.ok(s.t > t, 'running again');
 });
+
+test('leaving a lobby for the deck takes the socket out of the game, and the others hear who left', async () => {
+  const code = newGame('STAT12', {}, { 1: { team: 'alpha', roles: 'helm' }, 5: { team: 'bravo', roles: 'helm' } });
+  const [maker, other] = await seated(code, 1, 5);
+  assert.ok(maker.socket._rooms.has(`game:${code}`));
+  const before = emitted.length;
+  await maker.call('leave-game', { gameCode: code });
+  assert.ok(!maker.socket._rooms.has(`game:${code}`) && !maker.socket._rooms.has(`game:${code}:alpha`), 'out of the room and its team');
+  assert.deepEqual(emitted.slice(before).filter((e) => e.ev === 'player-left'), [{ room: `game:${code}`, ev: 'player-left', payload: { userId: 1, username: 'u1' } }]);
+  // its plays for that game are no longer taken, and a leave for a game it is not in says nothing
+  await maker.call('select-team', { gameCode: code, team: 'bravo' });
+  assert.equal(seats[code][1].team, 'alpha');
+  const after = emitted.length;
+  await other.call('leave-game', { gameCode: 'NOPE99' });
+  assert.equal(emitted.length, after);
+  // coming back joins as before
+  await maker.join(code);
+  assert.ok(maker.socket._rooms.has(`game:${code}:alpha`));
+  other.drop();
+  maker.drop();
+});
