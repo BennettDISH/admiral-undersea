@@ -4,6 +4,7 @@ import api from '../services/api'
 import { getAudio } from '../lib/audio'
 import { useScene } from '../lib/useScene'
 import { useMatch } from '../game/useMatch'
+import { LOST_NOTE } from '../lib/gameRoom'
 import ChartCanvas from '../game/ChartCanvas'
 import CrewPanel from '../game/CrewPanel'
 import TutorialCoach from '../game/TutorialCoach'
@@ -48,7 +49,7 @@ function SoundControls() {
 function Game({ user }) {
   const { code } = useParams()
   const navigate = useNavigate()
-  const { game, players, seat, view, contacts, over, refusal, stall, rejoin, send, onFx, joins } = useMatch(code, user)
+  const { game, players, seat, view, contacts, over, refusal, stall, lost, rejoin, send, onFx, joins } = useMatch(code, user)
   const audio = getAudio()
   useScene('game')
   useEffect(() => { loadArt() }, [])
@@ -347,6 +348,7 @@ function Game({ user }) {
           <button className="primary" onClick={rejoin}>Rejoin</button>
         </div>
       )}
+      {lost && !stall && !over && <div className="room-stall room-lost" role="status"><span>{LOST_NOTE}</span></div>}
       {view.t < 3.2 && !over && !training && <div className="dive-overlay" aria-hidden="true"><div className="dive-gauge" /><h1>DIVE! DIVE!</h1></div>}
 
       {end && (

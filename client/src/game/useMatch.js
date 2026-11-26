@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import api from '../services/api'
 import socket, { connectSocket } from '../services/socket'
-import { joinGameOnConnect, joinGame, stallNotice, stallOver } from '../lib/gameRoom'
+import { joinGameOnConnect, joinGame, stallNotice, stallOver, connectionLost } from '../lib/gameRoom'
 
 const CONTACT_TTL = 45
 
@@ -15,7 +15,7 @@ export function mergeContacts(list, incoming, now) {
 /**
  * A match from the socket: the game row and our seat (REST), our team's view five times a
  * second, the plot's contacts, every 'fx' event to whoever listens (onFx), the end, the
- * server's refusals, and a stalled clock (with rejoin to start it again).
+ * server's refusals, a stalled clock (with rejoin to start it again), and a lost connection.
  */
 export function useMatch(code, user) {
   const [game, setGame] = useState(null)
@@ -27,6 +27,10 @@ export function useMatch(code, user) {
   const [refusal, setRefusal] = useState(null)
   const [stall, setStall] = useState(null) // { message, t }: the server stopped this match's clock
   const [joins, setJoins] = useState(0) // a full view comes after each (re)join
+  const [lost, setLost] = useState(false) // the connection is down (src/lib/gameRoom.js)
+  const lastViewAt = useRef(Date.now())
+  const overRef = useRef(null)
+  overRef.current = over
   const fxListeners = useRef(new Set())
   const viewRef = useRef(null)
 
@@ -46,6 +50,8 @@ export function useMatch(code, user) {
     const onView = (v) => {
       if (!v || v.v !== 2) return
       viewRef.current = v
+      lastViewAt.current = Date.now()
+      setLost(false)
       setView(v)
       setStall((s) => (s && stallOver(s, v) ? null : s))
       if (v.contacts) { setContacts(mergeContacts([], v.contacts, v.t)); setJoins((n) => n + 1) }
@@ -76,9 +82,17 @@ export function useMatch(code, user) {
     }
   }, [code, user.id])
 
+  // Checked once a second: a socket the page knows is closed, or views that stopped coming.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLost(connectionLost({ connected: socket.connected, view: viewRef.current, over: overRef.current, lastViewAt: lastViewAt.current, now: Date.now() }))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [])
+
   const send = useCallback((event, payload = {}) => socket.emit(event, { gameCode: code, ...payload }), [code])
   const onFx = useCallback((fn) => { fxListeners.current.add(fn); return () => fxListeners.current.delete(fn) }, [])
   const rejoin = useCallback(() => joinGame(socket, code), [code])
 
-  return { game, players, seat, view, contacts, over, refusal, stall, rejoin, send, onFx, joins }
+  return { game, players, seat, view, contacts, over, refusal, stall, lost, rejoin, send, onFx, joins }
 }

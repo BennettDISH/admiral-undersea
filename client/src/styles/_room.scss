@@ -356,6 +356,8 @@
   padding: 0.6rem 0.7rem 0.6rem 1.1rem; border-radius: 8px; background: #2a0f0b; border: 1px solid #8a2a20; color: #ffd0c8; font-family: var(--font-mono);
   button { width: auto; flex: none; padding: 0.4rem 1rem; }
 }
+// the connection notice uses the same place, in amber: it clears by itself when views come back
+.room-lost { background: #2a1d06; border-color: #8a6420; color: #ffe2a8; padding: 0.6rem 1.1rem; }
 
 // ---- the dive and the end -------------------------------------------------------------------------
 .dive-overlay {

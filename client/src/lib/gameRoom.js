@@ -27,3 +27,17 @@ export function stallNotice(payload, lastT) {
 
 /** Whether a view ends a stall notice: a full view after a join, or the clock past the stall. */
 export const stallOver = (stall, view) => Boolean(view?.contacts) || (Number.isFinite(view?.t) && view.t > stall.t)
+
+// A running match sends this team's view five times a second. A dropped connection (a phone
+// out of signal) often leaves the socket looking open for half a minute, so going this long
+// without a view is the sign, as is a socket the page knows is closed. Never while the clock is
+// stopped by design: a tutorial step being read sends nothing, and a finished game nothing more.
+export const LOST_AFTER_MS = 3000
+export const LOST_NOTE = 'Connection lost: reconnecting… If it lasts, the auto-crew takes your stations.'
+
+/** Whether to tell the player the connection is down. */
+export function connectionLost({ connected, view, over, lastViewAt, now }) {
+  if (!view || over || view.over || view.tutorial?.paused) return false
+  if (!connected) return true
+  return now - lastViewAt > LOST_AFTER_MS
+}
