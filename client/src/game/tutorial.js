@@ -430,6 +430,28 @@ export function spotlight(tu, view, active, has = () => true) {
   return { key: keys.find((k) => has(k)) || keys[0], tag, station: needs, opening: false }
 }
 
+/**
+ * How far to scroll the page (in pixels, down is positive; 0 for not at all) so the lit control is
+ * clear of the lesson card. `control` and `card` are boxes on screen ({ top, bottom, left, right });
+ * `vh` is the screen's height and `top` the first row below the top bar. A card along the bottom
+ * (as on a phone) moves the control up above it: also when the card covers the control whole, which
+ * the page used to leave (the Listening tab under the card at "Ping"); never so far that the control
+ * goes under the top bar. A card along the top moves it down below the card, as far as the screen
+ * allows.
+ */
+export function clearOfCard(control, card, { vh, top, pad = 6, gap = 12 }) {
+  const across = Math.min(control.right, card.right) - Math.max(control.left, card.left) > 0
+  const covered = across && control.top - pad < card.bottom && control.bottom + pad > card.top
+  if (!covered) return 0
+  const atBottom = card.bottom > vh - 120 && card.top > top
+  if (atBottom) {
+    const room = control.top - pad - top
+    return room > 0 ? Math.round(Math.min(control.bottom + pad + gap - card.top, room)) : 0
+  }
+  const room = vh - 16 - (control.bottom + pad)
+  return room > 0 ? -Math.round(Math.min(card.bottom + gap - (control.top - pad), room)) : 0
+}
+
 /** A cell on the chart the step points at (the mark, for the charge), or null. */
 export function chartFocus(tu, view) {
   if (tu?.step === 'charge-aim' && view?.boat?.marker) return view.boat.marker

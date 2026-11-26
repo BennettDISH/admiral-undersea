@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Portrait } from './CrewPanel'
 import { STATION_INFO, chart, shotProblem } from './rules'
-import { lessonCard, spotlight, roomName } from './tutorial'
+import { lessonCard, spotlight, roomName, clearOfCard } from './tutorial'
 
 const PAD = 6 // around the lit control
 const find = (key) => (key ? document.querySelector(`[data-tut="${key}"]`) : null)
@@ -120,21 +120,28 @@ export default function TutorialCoach({ view, send, active, onLeave }) {
     if (r.top < 70 || r.bottom > vh - 30) el.scrollIntoView({ block: r.height < vh * 0.45 ? 'center' : 'start', behavior: reduceMotion() ? 'auto' : 'smooth' })
   }, [key, step])
 
-  // On a narrow screen the card may land over the lit control: scroll the page so the control sits
-  // clear above it (once a step, so it never fights the player's own scrolling).
+  // On a narrow screen the card may land over the lit control: once the page has stopped moving
+  // (the scroll above can still be gliding), scroll it so the control sits clear of the card (once a
+  // step, so it never fights the player's own scrolling). See clearOfCard for the sums.
   useEffect(() => {
+    let raf = 0
     const id = setTimeout(() => {
-      const el = find(key)
-      const c = cardRef.current
-      if (!shown(el) || !c) return
-      const r = el.getBoundingClientRect()
-      const box = c.getBoundingClientRect()
-      const across = Math.min(r.right, box.right) - Math.max(r.left, box.left) > 0
-      const over = r.bottom + PAD - box.top
-      const room = r.top - PAD - (topBar() + 8)
-      if (across && over > 0 && box.top > r.top && room > 0) window.scrollBy({ top: Math.min(over + 12, room), behavior: reduceMotion() ? 'auto' : 'smooth' })
-    }, 400)
-    return () => clearTimeout(id)
+      let lastY = NaN
+      let still = 0
+      let frames = 0
+      const settle = () => {
+        still = window.scrollY === lastY ? still + 1 : 0
+        lastY = window.scrollY
+        if (still < 3 && ++frames < 90) { raf = requestAnimationFrame(settle); return }
+        const el = find(key)
+        const c = cardRef.current
+        if (!shown(el) || !c) return
+        const dy = clearOfCard(el.getBoundingClientRect(), c.getBoundingClientRect(), { vh: window.innerHeight, top: topBar() + 8, pad: PAD })
+        if (dy) window.scrollBy({ top: dy, behavior: reduceMotion() ? 'auto' : 'smooth' })
+      }
+      settle()
+    }, 250)
+    return () => { clearTimeout(id); cancelAnimationFrame(raf) }
   }, [key, step])
 
   // A new step takes the focus off the control just used, so Enter or Space cannot press it again.

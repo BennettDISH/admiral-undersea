@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import serverTutorial from '../../server/game/tutorial.js'
 import engine from '../../server/game/engine.js'
 import ai from '../../server/game/ai.js'
-import { LESSONS, CHAPTERS, lessonCard, spotlight, stationOf, chartFocus } from '../src/game/tutorial.js'
+import { LESSONS, CHAPTERS, lessonCard, spotlight, stationOf, chartFocus, clearOfCard } from '../src/game/tutorial.js'
 import { STATIONS, AI_LEVELS, isVsAi, isTutorial, aiLevelOf, HEARING_AT_SPEED, crossing } from '../src/game/rules.js'
 import { react, newMemory } from '../src/game/reactions.js'
 import { isSoundName } from '../src/lib/soundNames.js'
@@ -65,6 +65,28 @@ test('the spotlight lights the station\'s tab first when another station is on s
   assert.equal(spotlight(tuOf('hunt', { kind: 'hunt' }), VIEW, 'helm'), null, 'nothing lit in the practice hunt')
   assert.deepEqual(chartFocus(tuOf('charge-aim'), VIEW), VIEW.boat.marker)
   assert.equal(chartFocus(tuOf('charge-full'), VIEW), null)
+})
+
+test('on a phone the lit control is scrolled clear of the lesson card, never under the top bar', () => {
+  // 390 x 844, the top bar's row ends at 60, the card along the bottom from 375 to 760
+  const phone = { vh: 844, top: 60 }
+  const card = { top: 375, bottom: 760, left: 16, right: 374 }
+  const box = (top, bottom, left = 100, right = 200) => ({ top, bottom, left, right })
+  // the Listening tab wholly under the card (it was left there): up until it sits 12px above the card
+  assert.equal(clearOfCard(box(410, 445), card, phone), 445 + 6 + 12 - 375)
+  // half under the card's top edge: the same sums, as before
+  assert.equal(clearOfCard(box(350, 400), card, phone), 400 + 6 + 12 - 375)
+  // the chart, too tall to clear: its top goes just under the top bar and no further
+  assert.equal(clearOfCard(box(200, 600), card, phone), 200 - 6 - 60)
+  assert.equal(clearOfCard(box(62, 600), card, phone), 0, 'already at the top bar')
+  // clear of the card, beside it or below it: left alone
+  assert.equal(clearOfCard(box(100, 140), card, phone), 0)
+  assert.equal(clearOfCard(box(400, 440, 380, 390), card, phone), 0)
+  assert.equal(clearOfCard(box(780, 820), card, phone), 0)
+  // a card along the top: the control moves down below it, as far as the screen allows
+  const high = { top: 64, bottom: 450, left: 16, right: 374 }
+  assert.equal(clearOfCard(box(420, 460), high, phone), -(450 + 12 - (420 - 6)))
+  assert.equal(clearOfCard(box(420, 830), high, phone), 0, 'no room below')
 })
 
 test('every control the lesson lights up is on the page, by its data-tut name', () => {
