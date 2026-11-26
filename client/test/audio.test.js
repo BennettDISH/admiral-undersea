@@ -80,3 +80,26 @@ test('the crew lines are short, each spoken by a station or the deck, and the ba
   }
   assert.ok(totalCharacters() < 2000, `${totalCharacters()} characters`)
 })
+
+test('every page that plays the deck music has mute and the music level, and so does the game', () => {
+  const src = (f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')
+  const app = src('App.jsx')
+  const off = new RegExp(app.match(/const DECK_SOUND_OFF = \/(.+)\/\n/)[1])
+  assert.match(app, /<div className="deck-sound"><SoundControls \/><\/div>/)
+  assert.match(app, /<DeckSound user=\{user\} \/>/)
+  const routes = [...app.matchAll(/path="([^"]+)"\s+element=\{user \? <(\w+) /g)].map(([, path, page]) => ({ path, page })).filter(({ page }) => existsSync(new URL(`../src/pages/${page}.jsx`, import.meta.url)))
+  assert.ok(routes.length >= 5, 'the routes were read')
+  let menus = 0
+  for (const { path, page } of routes) {
+    const file = src(`pages/${page}.jsx`)
+    if (file.includes("useScene('menu')")) {
+      menus++
+      assert.ok(!off.test(path.replace(/:\w+/g, 'X')), `${page} (${path}) plays the deck music, so it shows the sound controls`)
+    }
+    if (file.includes("useScene('game')")) {
+      assert.ok(off.test(path.replace(/:\w+/g, 'X')), `${page} has its own controls in its header`)
+      assert.match(file, /<SoundControls \/>/)
+    }
+  }
+  assert.ok(menus >= 4, 'the deck, make, join and lobby pages')
+})

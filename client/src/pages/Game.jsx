@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
+import SoundControls from '../components/SoundControls'
 import { getAudio } from '../lib/audio'
 import { useScene } from '../lib/useScene'
 import { useMatch } from '../game/useMatch'
@@ -26,22 +27,6 @@ function Hull({ hull, label, side }) {
     <div className={`hull-read ${side}`} aria-label={`${label}: hull ${hull} of ${HULL_MAX}`} data-tut={`hull-${side}`}>
       <span className="hull-label">{label}</span>
       <span className="hull-pips">{Array.from({ length: HULL_MAX }, (_, i) => <i key={i} className={i < hull ? 'on' : ''} />)}</span>
-    </div>
-  )
-}
-
-function SoundControls() {
-  const audio = getAudio()
-  const prefs = useSyncExternalStore(audio.subscribe, audio.snapshot, audio.snapshot)
-  return (
-    <div className="sound-controls">
-      <button type="button" className={`sound-toggle ${prefs.muted ? 'muted' : ''}`} onClick={() => audio.toggleMute()} aria-pressed={prefs.muted} aria-label={prefs.muted ? 'Sound off. Turn sound on' : 'Sound on. Mute'}>
-        {prefs.muted ? '🔇' : '🔊'}
-      </button>
-      <label className="music-level" title="Music">
-        <span>♪</span>
-        <input type="range" min="0" max="1" step="0.05" value={prefs.music} onChange={(e) => audio.setPrefs({ music: Number(e.target.value) })} aria-label="Music level" />
-      </label>
     </div>
   )
 }

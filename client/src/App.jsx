@@ -15,6 +15,7 @@ import { HOLD_KEY, returnPath, startWaypoint } from './lib/signIn'
 import { logoutAllUrl } from './lib/topBar'
 import { armAudio, getAudio } from './lib/audio'
 import { useSoundUnlocked } from './lib/useScene'
+import SoundControls from './components/SoundControls'
 
 // A page reached by a link (an invite, a reload mid-match) has no sound until a first click:
 // say so, except on the deck, which has its own "Come aboard".
@@ -23,6 +24,17 @@ function SoundHint() {
   const { pathname } = useLocation()
   if (unlocked || pathname === '/' || pathname === '/login' || pathname === '/register') return null
   return <button className="sound-hint" onClick={() => getAudio().unlock()}>🔈 Click anywhere for the boat's sound</button>
+}
+
+// Once the sound is open, the deck pages (the deck, making or joining a game, the lobby) play the
+// menu music and the sea: mute and the music level sit in their bottom left corner. A game has its
+// own pair in its header; the sign-in pages play nothing.
+const DECK_SOUND_OFF = /^\/(game\/|login|register)/
+function DeckSound({ user }) {
+  const unlocked = useSoundUnlocked()
+  const { pathname } = useLocation()
+  if (!user || !unlocked || DECK_SOUND_OFF.test(pathname)) return null
+  return <div className="deck-sound"><SoundControls /></div>
 }
 
 // The whole site has sound: the first click or key anywhere opens it (lib/audio.js), and every
@@ -120,6 +132,7 @@ function App() {
         onSignOutAll={handleSignOutAll}
       />
       <SoundHint />
+      <DeckSound user={user} />
       <Routes>
         <Route
           path="/login"
