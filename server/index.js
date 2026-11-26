@@ -19,6 +19,7 @@ const authRoutes = require('./routes/auth');
 const gameRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const setupGameSockets = require('./sockets/game');
+const { MAX_SOCKET_MESSAGE_BYTES } = require('./sockets/rateLimit');
 const initDb = require('./config/initDb');
 const { corsOrigin } = require('./config/origin');
 const { securityHeaders } = require('./middleware/securityHeaders');
@@ -33,11 +34,13 @@ const allowedOrigin = corsOrigin();
 // the sign-in limits count req.ip.
 const app = trustOneProxy(express());
 const httpServer = createServer(app);
+// Messages past MAX_SOCKET_MESSAGE_BYTES (16 kB; the default is 1 MB) close their connection.
 const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigin,
     credentials: true
-  }
+  },
+  maxHttpBufferSize: MAX_SOCKET_MESSAGE_BYTES,
 });
 
 const PORT = process.env.PORT || 5000;
@@ -132,4 +135,4 @@ function scheduleMatchSweep() {
 start();
 
 // For security.test.js, which walks the real routes.
-module.exports = { app, httpServer };
+module.exports = { app, httpServer, io };

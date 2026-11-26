@@ -6,6 +6,12 @@
 const SOCKET_BURST = 20;
 const SOCKET_PER_SECOND = 10;
 
+// How big one message may be. The game's own are a few hundred bytes at most (a station's play,
+// a crew call); Socket.IO's default allows a megabyte, and each is read in full before the
+// bucket above can drop it, so a page sending big ones slowed every match's clock. A message
+// past this closes that connection (the page reconnects and rejoins).
+const MAX_SOCKET_MESSAGE_BYTES = 16 * 1024;
+
 // A token bucket: `burst` events at once, refilling at `perSecond`. take() spends one and
 // says whether there was one to spend.
 function tokenBucket({ burst = SOCKET_BURST, perSecond = SOCKET_PER_SECOND, now = Date.now() } = {}) {
@@ -20,4 +26,4 @@ function tokenBucket({ burst = SOCKET_BURST, perSecond = SOCKET_PER_SECOND, now 
   };
 }
 
-module.exports = { tokenBucket, SOCKET_BURST, SOCKET_PER_SECOND };
+module.exports = { tokenBucket, SOCKET_BURST, SOCKET_PER_SECOND, MAX_SOCKET_MESSAGE_BYTES };
