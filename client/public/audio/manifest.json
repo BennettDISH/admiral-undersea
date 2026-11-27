@@ -314,23 +314,23 @@
       "gain": 1
     },
     "music.calm": {
-      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-calm-13fefc8e.mp3",
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-calm-d67476b6.mp3",
       "gain": 0.55,
       "loopStart": 0.3,
-      "loopEnd": 42.966667
+      "loopEnd": 50.3
     },
     "music.fight": {
-      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-fight-83272354.mp3",
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-fight-dd463c28.mp3",
       "gain": 0.55,
       "loopStart": 0.3,
-      "loopEnd": 42.966667
+      "loopEnd": 50.3
     },
     "sting.win": {
-      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-sting-win-9016ff64.mp3",
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-sting-win-1146d3d7.mp3",
       "gain": 0.6
     },
     "sting.lose": {
-      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-sting-lose-c43fd53b.mp3",
+      "src": "https://media.bennettdishmanmedia.com/sounds/admiral-deep/admiral-deep-sting-lose-bb8e356c.mp3",
       "gain": 0.6
     },
     "music.menu": {
